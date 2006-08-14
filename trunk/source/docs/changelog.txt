@@ -1,0 +1,494 @@
+2005-07-25 -- Release 1.1.2b1
+           -- Added Greylisting - to avoid name clash called 'Delaying'.
+           -- Added Sender Rewriting Scheme.
+           -- Added possibility to search logfiles.
+           -- Added CPU usage statistics.
+           -- Added HTTP Compression for Web Admin interface.
+           -- Added new page 'Shutdown/Restart'.
+           -- Added new page 'File Editor' for settings that use option files syntax.
+           -- Optional floating of Menu Panel in Web Admin interface.
+           -- Rewritten Statistics, fixed bug with 'version' field being mangled in uploaded stats.
+           -- New options: 
+              Add Spam Reason Header, Deny SMTP Connections From these IP's*, Bounce Senders*
+              Don't Log these IPs, Maillog Tail Bytes, Maillog Tail Wrap Column, 
+              MaintenanceLog, ValidateLog, DelayLog, DelaySL, UseLocalTime.
+           -- Redesigned configuration file loading.
+           -- $EmailDomainRe changed to accomodate mail addresses in the domain literal format.
+           -- Corrected case, where smtp server sends 5xx response after DATA command.
+           -- Fixed bug with smtp command "mail from:<>" handed directly to the smtp server.
+           -- Modified urls in Web Admin interface to skip redirections, CSS modifications.
+           -- Added $client->peerport() in logs.
+           -- Got rid of '$&' from code (google on 'sawampersand').
+           -- More selective Spamlovers & RBLNonFatal option (Thanks Fritz Borgstedt).
+           -- Logs searching made non-blocking.
+           -- Tidied up email interface to work with Norton Antivirus as a client.
+           -- Email interface extended to white/redlist, updated Statistics page.
+           -- Added X-Assp-Whitelisted header.
+           -- $EmailAdrRe correction (in assp.pl & rebuildspamdb.pl) (Thanks Aaron Bostick).
+           -- Got rid of google autofill for some fields in Web Admin interface.
+           -- More accurate CPU stats.
+           -- Report Perl  & installed modules versions in maillog during initalization.
+           -- "Expression to Identify ..." now accepts option files syntax.
+           -- Textareas made non wrapping.
+           -- Option file path can be specified relative to ASSP directory base.
+           -- Images are now served by internal HTTP server, If-Modified-Since requests are handled.
+           -- New HTTP headers added in internal HTTP server (Server, Date, Content-Length).
+           -- Better checks and corrections of option files, empty files are allowed.
+           -- Maillog messages uniformized.
+           -- Radio buttons preserve selection.
+           -- Maillog Tail fixes: corrected indenting, better line terminators detection.
+           -- $Avlocal logic corrected.
+           -- Missing push(@t,0.97) line added in isspam() subroutine.
+           -- Noprocessing mail resets {myheader} field.
+           -- noDelay option defaults to 'file:nodelay.txt'.
+           -- redRe option defaults to 'file:redre.txt' (Courtesy of Micheal Espinola Jr).
+           -- Added Valid XHTML 1.0 logo.
+           -- Stylesheets moved to CSS files.
+           -- Fixed Bug ID 1056002 (HTML entities not encoded before sending to browser).
+           -- Fixed bug ID 1060880 (header moving to body).
+           -- Fixed bug ID 1234365 (trailing pipe symbol in redRe: breaks whitelisting).
+
+2004-09-04 -- 1.1.1 release.
+           -- Brand new interface - nice work AJ!
+           -- noprocessing addresses now accept domains etc same as spam lovers.
+           -- SPF implementation - thanks Nigel Barling and Andrew Macpherson.
+           -- RBL implementation - thanks Nigel Barling.
+           -- SMTP Session limits- thanks Mark Pizzolato
+           -- IP Connection Limiting. Can limit the connections per ip address.
+           -- Multilevel attachment blocking for external vs whitelisted vs noprocessing.
+           -- ISP & Secondary mx setting to bypass greylist,spf,rbl and ip connection limits.       
+           -- Option to not log emails but forward them to spam account.
+           -- Options to log every n'th Spam/Non Spam message for heavy volume servers.
+           -- Significantly expanded stats page.
+           -- Fixed bug that causes an empty envelope-sender when forwarding to "CC all spam" address
+           -- Fixed a "divide by zero error at line 1084" when trying to set the log roll days to zero
+           -- Re-ordered some config options to be more intuitive (hopefully)
+           -- Fixed a bug that causes ASSP to quit when dropping the line in certain conditions
+           -- Fixed UnprocessedDomains Bug when using external file
+           -- Obsolete config parameters will be removed during update
+           -- Move2Num now displays progress.
+           
+2004-08-01 -- 1.1.0 New *official Release.
+           -- Now under new development team - AJ, John Calvi & Robert Orso.
+           -- Integrated Robert Orsos excellent LDAP mod (vers 1.0.12c)
+           -- Added web interface roll up options.
+           -- Expanded collection folders, ie added virus folder.
+           -- Made collection options fully user definable.
+           -- Fixed some default message collection options.
+           -- Added scripting blocking. Use for activex & java.
+
+2004-07-24 -- 1.0.12h JC modded release.
+           -- Fix attachment blocking bug from 1.0.12.
+           -- Added simple proxy support for greylist and stats.
+           -- Added No processing domains.
+           -- Added No processing separate attachment block option.
+           -- Tidied some noprocessing code.
+
+2004-07-18 -- 1.0.12g JC modded release.
+           -- Fix performance bug in 1.0.12f
+           -- Added AV bytes feature.
+
+2004-07-15 -- 1.0.12f JC modded release.
+           -- Fix misc bugs in 1.0.12e
+
+2004-07-08 -- 1.0.12e JC modded release.
+           -- Made  Scan Full email option
+           -- Fixed Testmode not checking attachments (Now arrayed).
+
+2004-07-04 -- 1.0.12d JC modded release.
+           -- Fixed Testmode not checking attachments.
+
+2004-06-28 -- 1.0.12c JC modded release.
+           -- Fixed Spamlover/Testmode logging (database & logfile).
+
+2004-06-28 -- 1.0.12b JC modded release.
+           -- Removed AV from whitebody to increase performance.
+           -- Fixed Bayesian Spam Logging.
+
+2004-06-26 -- 1.0.12a JC modded release.
+           -- Fixed attachment mail bomb etc blocking from logging into wrong database directories
+           -- Changed no processing addresses to also be attachment blocked - optional.
+           -- Added ISP greylist bypass features.
+           -- Added local user bypass AV feature
+           -- Reordered AV feature.
+
+2004-06-25 -- 1.0.12 release
+           -- Fixed spelling errors with headder -> header
+           -- changed how XEXCH50 is handled in spam reports (Thanks Tim)
+           -- changed how mail from is handled in spam reports (Thanks Jocelyn)
+           -- Fixed stats bug from .11 release
+           -- removed the freshclam.pl file from the distribution archive -- it never worked
+           -- removed the goodhosts.pl file from the distribution archive -- goodhosts
+              support was removed in .11 release
+
+2004-06-24 -- 1.0.11 release
+           -- Added checkbox to disable helo-blacklist and checked it by default
+           -- Added list of helo-blacklist entries to ignore
+           -- removed the obsolete Goodhost code
+           -- changed default PopB4SMTP test to if($hash{$ip}) from if($hash{$ip}>0)
+           -- fixed the TestMode setting for blacklisted domains, helo blacklist, and 
+              spambucket addresses
+           -- fixed the spamprob bug in CCAllSpam -- spam probability and
+              x-intended-for now appears in the copied emails.
+              
+2004-06-09 -- 1.0.10d release
+           -- Added support to block viruses with the clamav database
+           -- postmaster added to the default spamlovers list
+           -- added default regular expression to identify random junk on subjects
+           -- cleared up config messages about addresses / usernames
+           -- changed the log-roll to keep maillog.txt always the current maillog -- Thanks Jason W!
+           -- added LogRollDays config variable
+           -- added maxbytes setting to make the 10k configurable
+           -- added helo blacklist
+           -- fixed popb4smtp to work out of the box for dbfile implementations
+           -- fixed bug that double wrapped the rcvd line if ehlo failed
+           -- blocked ! @ and % relay attempts in the user name
+           -- allowed for possible blank messages (ie header only)
+           -- added commented out line to include "x-intended-for: " header
+           -- took rndhelo out of clean -- wasn't working right
+           -- clean looks at all recipients / addresses in the header
+           -- updated analyze to handle new helo blacklist
+           -- abort posting config data unless the whole post is present (prevents browser
+              errors from corrupting your configuration)
+           -- Fixed spelling error: deubg -> debug
+
+2004-01-26 -- Added RemovePid function for sig TERM and sig INT
+
+2004-01-09 -- Fixed bug in statistics that showed the wrong percentage for cumlative relay attempts (thanks Rikard)
+           -- Changed link for relay port & email interface (thanks dynamite)
+
+2003-12-22 -- Release 1.0.9
+           -- fixed "random relaying" errors
+           -- removed a debug print that I forgot
+
+2003-12-17 -- Release 1.0.8
+           -- Default Localhost option to accept mail addressed to addresses without a hostname
+           -- Handles "Broken Pipe" error
+           -- Gracefully handles invalid user-entered regular expressions without crashing
+           -- Switched to better defined and more consistent email address recognition
+           -- fixed spam address bug that never matched user@domain entries
+           -- spam prob headers for messages forwarded to "send all spam" address
+           -- recognized server error return on XEXCH50 directives
+           -- fixed bug for "no maillog" that logged mail anyway
+           -- fixed nominal bug in orderedtie -> CLEAR. function was never called.
+           -- fixed bug where options files are left open
+           -- fixed move2num to correctly support the maillog file extension (.eml)
+           -- move spam-prob headers to the bottom of the header instead of at the subject
+           -- fixed the reload time for option files
+           -- email reports put in separate files
+
+2003-11-06 -- Release 1.0.7
+           -- NoHaiku option added
+           -- fixed debug print in mainloop
+           -- implemented nogreydownload
+           -- prevented crashes on flushing ordered ties when they're undefined
+           -- fixed the spamprob in "send all spam"
+           -- fixed debug info in authentication
+           -- fixed CRCRLF issue when removing spam-prob header
+           -- fixed repeated download of greylist when there's a base
+           -- limited the size of subjects when running with "use subjects as filenames"
+           -- fixed multiple check of makeRE files
+
+2003-10-22 -- Release 1.0.6
+           -- Two spelling errors
+           -- Significantly updated the "getting started" documentation
+           -- Added the "Error spamdb/whitelist must be repaired" log message to prevent system hanging.
+           -- Fixed a couple of major bugs in repair.pl
+           -- Fixed the bug that causes ASSP to die the first time the greylist is downloaded
+           -- Added stats that don't reset
+
+2003-10-17 -- Release 1.0.5
+           -- Merged AJ's web design into the assp code (Thanks AJ!)
+           -- added OutgoingBufSize, NotGreedyWhitelist, and WhitelistLocalOnly config options
+
+2003-10-15 -- changed allowAdminConnectionsFrom, acceptAllMail, localDomains, spamaddresses,
+               spamLovers, noProcessing, whiteListedDomains, and blackListedDomains to allow file lists.
+               These also make use of perl's more effecient qr// syntax
+           -- KeepWhiteListedSpam option added to disable the "delete spam that became whitelisted"
+               feature which was also added
+           -- added greylist support, replacing goodhosts and dnsbl
+           -- spamprob is added to forwarded spam
+           -- reportmail gets rid of \r in subjects causing 550 Invalid Line End errors for SAV
+           -- fixed a critical bug in the orderedtie class that dropped numerous entries in the
+               various databases
+
+2003-10-09 -- Release 1.0.4
+
+2003-10-08 -- changed the default blackre to allow . in the text before the @
+           -- made the description of the "cc all spam" more clear
+           -- documented that maillog.txt without the .txt won't auto-rollover
+           -- commented out a few debug print statements that got away
+           -- converted dos line ends to unix LF's
+           -- added X-Assp-Report: YES headers to the spam / ham / white reports
+           -- cleared out X-Assp-Spam-Prob: lines before adding a new one
+           -- tuned up sub clean to better detect spam:
+           -- detect multiple blank lines, better detection of text in links and urls, 
+           --   better detection of randwords
+
+2003-09-26 -- Release 1.0.3
+           -- Fixed bug with blank spam forwards
+           -- reorganized menu slightly
+           -- added extensions to block executables feature
+           -- added feature to block spam bombs
+           -- added feature to disable greylist upload
+           -- increased greylist scan to look at last 3 days
+
+2003-09-23 -- Release 1.0.2
+           -- Fixed bug that hangs ASSP when some databases (especially dnsbl) is empty
+           -- Added Forward-All-Spam option
+           -- Added "expression to identify no-processing mail"
+           -- added default file extension for maillog files
+           -- added preliminary code to rebuildspamdb to build a true host greylist to replace dnsbl
+
+2003-08-25 -- changed file lists to not require \n at the end of the last line
+           -- added .cmd to the list of blocked filetypes
+
+2002-08-20 -- Release 1.0.1
+           -- Fixed clean to better remove headers (aids in some spam detection)
+
+2003-08-15 -- Fixed a bug that causes qmail (and a few others) to ignore the confirmation emails
+              from the email interface. (Thanks JustinMazzi)
+
+2003-08-13 -- release 1.0.0
+           -- separated config options to basic and advanced
+           -- RamSaver and OrderedTieHashSize in the config
+           -- PopB4SMTPFile in the config
+           -- Fixed some spelling errors & capitalized Bayesian
+           -- Fixed the missing <> in the docs for mailFrom
+           -- tidied up some details in orderedTie that missused RAM
+           -- added more informative progress messages for rebuildspamdb
+
+2003-08-06 -- release 0.3.5
+           -- fixed BDAT bug (exchange attachments) by blocking 250-CHUNKING
+
+2003-08-05 -- fixed bug that added rndhelo where there was no helo
+
+2003-08-04 -- release 0.3.4b
+           -- updated rebuildspamdb.pl to not generate negative spam probs
+           -- updated the description text for RedRE to have \[autoreply\]
+           -- release 0.3.4
+           -- fixed important bug about header wrapping with \n instead of \r\n
+           -- fixed possible bug in cleaning goodhost
+
+2003-08-01 -- release 0.3.3
+           -- localDomainFile was incorrectly implemented -- fixed exceptions.
+           -- changed how spambucket addresses are handled (because of localDomainFile)
+           -- corrected noProcessing to work with mail from an address as well as to address
+           -- allowed noProcessing to work with full addresses rather than local ones.
+           -- redlist now prevents whitelist additions but doesn't make locals/whitelisted non local/whitelisted
+           -- fixed a couple of important bugs in rebuildspamdb for cleaning whitelist and goodhosts
+
+2003-07-31 -- description string for block exes includes whitelisted AND LOCAL
+           -- multiple helo's don't goof up the header (thanks pwhodges)
+           -- recieved line wraps
+           -- rc script stop recognizes base (thanks enrico)
+           -- kill -HUP now reopens log file
+
+2003-07-30 -- clean now recognizes the helo -- improves spam detection a bit
+
+2003-07-25 -- release 0.3.2
+           -- recognized <script tags in clean sub
+           -- replaced url encoding wherever it appears, not just in urls
+           -- relaxed randword constraints
+           -- better handling of non-latin characters
+           -- moved to two word tokens instead of three-word tokens to reduce RAM need for rebuildspamdb
+
+2003-07-24 -- fixed chroot -> tie order problem
+           -- allowed ! addresses to local users
+           -- added support for CHUNKING / BDAT esmtp features
+           -- changed move2num to not exceed MaxFiles
+           -- updated rebuildspamdb to use less ram
+
+2003-07-23 -- fixed weakness in mail relay detection
+           -- now base gets chroot chopped off
+           -- rebuildspamdb.pl unlinks .bak files before renaming
+           -- filtered off bad | options in makeRE
+
+2003-07-22 -- fixed bugs in runAsUser code & logging messages
+
+2003-07-17 -- release 0.3.1
+           -- fixed two bugs that cause crashes under unusual cricumstances
+           -- 1) accept gets null
+           -- 2) posting over 32k hangs on web admin interface
+           -- added noProcessing addresses
+           -- fixed bug in log rollover
+
+2003-07-16 -- added goodhosts spam detection
+           -- added options for localdomains and relayhosts files
+           -- added dnsbl and goodhosts to analysis page
+           -- updated stats
+           -- moved PID file to correct location to make a pid file of the fork, not the parent
+           -- added more default paths to look for assp.cfg; checked in this order:
+               '.','assp','/usr/local/assp','/home/assp','/usr/assp','/assp'
+           -- widened some config options's boxes
+           -- added whitelist only option and nomaillog option
+           -- added EmailFrom config option for people whose mailer dislikes <>
+           -- added "Maillog Tail" to config pages
+           -- updated documentation
+
+2003-07-11 -- fixed iswhite to correctly redlist <>
+           -- option added for redRe for autoreply
+           -- spamlovers get [SPAM] subject (treated like testmode)
+
+2003-07-10 -- release 0.3.0
+           -- updated stat.pl with new stats and for new whitelist format
+           -- updated rebuildspamdb to remove files from spam collection that match
+               corrected notspam and visa versa
+           -- rebuildspamdb uses squares of token values for tokens only present in one set
+           -- report false-positives by email
+           -- see maillog from admin interface
+           -- see analysis of spaminess of a mail from admin interface
+
+2003-07-03 -- auto rollover for log file.
+           -- report spam by email
+           -- add to whitelist by email
+           -- config option to disable blocking executable attachments
+           -- config option to block exe attachments from local/whitelisted users
+           -- config option to log bayesian non-spam mail
+           -- code stub for those who want to implement pop before smtp
+           -- show entire whitelist / redlist (on list maintenance page)
+           -- config option to not add spam prob for outgoing mail
+           -- database files use \n as record separator
+           -- bug fixes: rebuildspamdb hammers whitelist
+           -- rebuildspamdb squares scores that are all spam or all ham
+           -- helo without backslashes passed to MTA
+           -- more executable file extensions are blocked
+           -- SIG{TERM} is logged
+           -- from <> (usually postmaster) will not add to whitelist
+           -- ? not a valid email address character
+           -- quoted printable isn't confused by \r
+           -- hasspamaddresses fails gracefully if $spamaddresses is undefined
+           -- white/red list additions by the admin interface are logged
+
+2003-06-13 -- release 0.2.1
+           -- fixed whitelistdomains' config option to allow blank entry
+           -- fixed upload stats to recover gracefully from a socket error
+           -- fixed problem with unusual HELO that could crash ASSP
+           -- moved pointer to ASSP's documentation
+
+2003-05-30 -- release 0.2.0
+           -- There's too many changes to name. I'll try to list a few:
+           -- web based configuration and whitelist/ redlist maintenance interface
+           -- noop config option
+           -- [spam] in subject
+           -- whitelist / blacklist domain
+           -- destination address in maillog
+           -- sender / from whitelist check
+           -- % relay test
+           -- daemon on *nix
+           -- totalizer
+           -- ASSP to stop listening to a client after a certain high-water mark on the MTA...
+           -- assp.cfg file
+           -- base is command line parameter
+           -- whiteRE and blackRE help identify ham / spam
+           -- online statistics
+           -- sig HUP causes assp.cfg to be reread (unix)
+           -- X-Assp-Spam: YES can be added to header
+           -- sorted hash files (means uses less ram and loads immediately)
+
+2003-04-07 -- Release 0.1.6
+           -- Added $relayHost and $relayPort to support Exchange and Notes.
+           -- Updated documentation for the Exchange / Notes setup.
+
+2003-04-04 -- fixed missing received line bug, and bug that affected missing pieces of spamlog files.
+           -- fixed bug that caused the spamprob header to be left off some emails.
+           -- fixed move2num to skip existing numbers & not overwrite files.
+           -- added code to skip exchange's XEXCH50 command.
+
+2003-04-02 -- added picturelink and randomtext checks in clean to try to improve spam detection
+           -- updated rebuildspamdb to handle maxtick better -- corrects an asterisk bug
+
+2003-03-27 -- Release 0.1.5
+           -- Updated documentation for changes for pipeline problem
+           -- integrated "NOOP Connection from" idea from Rainer Schuetz
+           -- fixed no spam header in test mode bug
+           -- added spam header to local / whitelisted mail
+
+2003-03-26 -- Fixed pipeline problem causing "crlf.crlf" errors
+           -- fixed problem where some non-spam was incompletely logged
+
+2003-02-27 -- Release 0.1.4
+           -- Updated docs for asspsmpl and removed rmdoubt.
+
+2003-02-25 -- fixed a not-cleared buffer that shows up when two messages are sent in sequence without
+              a RSET or QUIT between them.
+
+2003-02-20 -- added wantsMessage and appendMessage to handle servers that don't stream after the DATA
+
+2003-02-19 -- fixed funny dates in changelog ;-)
+           -- added $ChangeRoot configuration option
+           -- cleaned up some other win/*nix issues
+           -- updated documentation for ChangeRoot
+
+2003-02-13 -- Release 0.1.3
+           -- Fixed a bad bug that corrupted large emails
+
+2003-02-09 -- Fixed a syntax error in list.pl
+           -- changed isspam to count only first two occurrances of a token -- reduces ability for spoofing.
+           -- updated clean to move html out of mid-words lik<woffie>e thi<baffie>s
+           -- removed the possibility of <> being added to the whitelist
+
+2003-02-04 -- Cleaned up documentation here and there.
+           -- first attempt at $spamLovers
+
+2003-01-30 -- Release 0.1.2
+           -- worked with spamarchive data to improve sub clean
+           -- copied the fixed switchUser sub into assp.pl
+           -- converted scripts to unix line ends
+           -- merged in new configuration options into documentation
+
+2003-01-29 -- Updated documentation for openrbl. Added a sample proxy dialogue.
+
+2003-01-27 -- commented out #use Warnings and #use Strict -- should have done this before now :-(
+           -- commented out the data::dump parts (used for debugging only)
+           -- made better error result for can't create socket
+
+2003-01-24 -- commented out IpSpam stuff and implemented dnsbl @ 0.95 x 3
+           -- wrote switchUser and changed config.pl & docs
+
+2003-01-23 -- Added support for %hh, &#112; and &nbsp; decoding in sub clean
+           -- stripped out a number of uninformative html tags (see sub clean)
+
+2003-01-22 -- Changed the isspam function to total probabilities on the top 30 influential
+              keywords rather than 50 to increase spam hit rate. This increased my hit rate on
+              SpamArchive data by about 1%.
+           -- Changed IpSpam functions to look at xx.xx.xx groups rather than xx.xx groups.
+
+2003-01-20 -- Changed isspam so tokens must be between 2 and 19 (inclusive) chars. -- Aids in detecting
+              non-English spam.
+           -- Added first attempt at %IpSpam functions
+
+2003-01-16 -- Release 0.1.1
+
+2003-01-16 -- Changed "free as in beer" to "free as in speech" in the documents -- you can still buy me
+              beer if you want...
+           -- Added section on absolute path in docs for assp.pl's do config.pl
+           -- Commented out use Strict and use Warnings untill I can get them to work right on Linux
+
+2003-01-14 -- Added the $AddSpamProbHeadder config option
+
+2003-01-20 -- changed the maillog to only save local and whitelisted mail. This prevents gradual
+              spamification of the nonspam corpus by false negatives.
+
+2002-12-20 -- Initial Release 0.1.0
+
+TODO Done:
+ add a web configuration interface
+ the totalizer
+ kill -HUP reloads config
+ find a way to run that uses less ram
+ run as non root user
+ do something with IP filtering
+ config option to allow all mail to some users
+ document "ASSP works best for"
+ runs in chroot environment (tested)
+ track down the "bare LF" problem.
+ support SMARTHOST
+ whitelist a domain
+ add an email communication interface
+ whitelist only (no bayesian filtering) option
+
+TODO:
+ do network/bits config
+ implement SPAM digest for the users
+ implement feature to enable users to retrieve blocked messages

@@ -1,0 +1,75 @@
+#!/bin/sh
+# chkconfig: 235 99 10
+# description: Start or stop the ASSP SPAM Proxy  server
+#
+### BEGIN INIT INFO
+# Provides: ASSP
+# Required-Start: $network $syslog
+# Required-Stop: $network
+# Default-Start: 2 3 5
+# Default-Stop: 0 1 6
+# Description: Start or stop the ASSP SPAM Proxy  server
+### END INIT INFO
+
+# Rev 0.2.0 R.Toth
+# Mods to specify the correct startup directory..  
+# This needs to be hard-coded for now, until a better way comes up...
+# Specifically, the location(s) of the scripts, pid file, config file...
+# Mods made for 0.2.0 and new config file format to locate PID file too..
+
+base=/usr/local/assp
+confFile=$base/assp.cfg
+start="$base/start $base"
+stop="$base/stop $base"
+lockfile=/var/lock/subsys/assp.lock
+pidFile=$base/pid
+name='ASSP'
+
+case "$1" in
+'start')
+	echo "Starting ASSP via: $start"
+	$start >/dev/null 2>&1 </dev/null
+	# $start 
+	RETVAL=$?
+	if [ "$RETVAL" = "0" ]; then
+		touch $lockfile >/dev/null 2>&1
+	fi
+	;;
+'stop')
+	$stop
+	RETVAL=$?
+	if [ "$RETVAL" = "0" ]; then
+		rm -f $lockfile
+	fi
+	;;
+'status')
+	pidfile=`grep "^pidfile=" $confFile | sed -e 's/pidfile=//g'`
+	if [ "$pidfile" = "" ]; then
+		pidfile=$pidFile
+	fi
+	if [ -s $pidfile ]; then
+		pid=`cat $pidfile`
+		kill -0 $pid >/dev/null 2>&1
+		if [ "$?" = "0" ]; then
+			echo "$name (pid $pid) is running"
+			RETVAL=0
+		else
+			echo "$name is stopped"
+			RETVAL=1
+		fi
+	else
+		echo "$name is stopped"
+		RETVAL=1
+	fi
+	;;
+'restart')
+	$stop && $start
+	RETVAL=$?
+	;;
+*)
+	echo "Usage: $0 { start | stop | status | restart }"
+	RETVAL=1
+	;;
+esac
+exit $RETVAL
+

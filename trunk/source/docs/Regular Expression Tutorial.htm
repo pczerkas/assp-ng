@@ -1,0 +1,470 @@
+
+<html><head>
+
+<title>Perl Regular Expression Tutorial</title>
+<body text="#000000" bgcolor="#FFFFFF">
+<h1><font color="#DD0000">Perl Regular Expression Tutorial</font color="#DD0000"></H1>
+<br clear=left><DL><DD>
+
+</DL>
+</head>
+
+<hr>
+<H2>Contents</H2>
+<OL>
+  <li><a href="#2">Overview</a>
+  <LI><A HREF="#2.2">Simple Regular Expressions</A>
+  <LI><A HREF="#2.3">Metacharacters</A>
+  <LI><A HREF="#2.4">Forbidden Characters</A>
+  <LI><A HREF="#2.5">Things To Remember</A>
+</ol>
+
+<P><HR><P>
+
+<A NAME="2"><H2>Overview</H2>
+
+A regular expression is a string of characters which tells the
+searcher which string (or strings) you are looking for.  The following
+explains the format of regular expressions in detail.  If you are
+familiar with Perl, you already know the syntax.  If you are familiar
+with Unix, you should know that there are subtle differences between
+Perl's regular expressions and Unix' regular expressions.
+
+<A NAME="2.2"><H3>Simple Regular Expressions</H3>
+
+In its simplest form, a regular expression is just a word or phrase to search
+for.  For example,
+
+<PRE>  gauss</PRE>
+
+would match any subject with the string "gauss" in it, or which
+mentioned the word "gauss" in the subject line.  Thus, subjects with "gauss",
+"gaussian" or "degauss" would all be matched, as would a subject containing the
+phrases "de-gauss the monitor" or "gaussian elimination."  Here are some more
+examples:
+
+<PRE>  carbon</PRE>
+  <DL><DD>Finds any subject with the string "carbon" in its name, or which mentions
+      carbon (or carbonization or hydrocarbons or carbon-based life forms) in
+      the subject line.
+</DL><PRE>  hydro</PRE>
+  <DL><DD>Finds any subject with the string "hydro" in its name or contents.
+Subjects with "hydro", "hydrogen" or "hydrodynamics" are found, as well as
+subjects containing the words "hydroplane" or "hydroelectric".
+</DL><PRE>  oxy</PRE>
+  <DL><DD>Finds any subject with the string "oxy" in the subject line.  This
+      could be used to find subjects on oxygen, boxy houses or oxymorons.
+</DL><PRE>  top ten</PRE>
+  <DL><DD>Note that spaces may be part of the regular expression.  The above
+      expression could be used to find top ten lists. (Note that they would
+      also find articles on how to stop tension.)
+</DL><P>
+
+<A NAME="2.3"><H3>Metacharacters</H3>
+
+Some characters have a special meaning to the searcher.  These characters are
+called <EM>metacharacters</EM>.  Although they may seem confusing at first,
+they add a great deal of flexibility and convenience to the searcher.<P>
+
+The <EM>period</EM> (<STRONG>.</STRONG>) is a commonly used metacharacter.  It matches
+exactly one character, regardless of what the character is.  For example, the
+regular expression:
+
+<PRE>  2,.-Dimethylbutane</PRE>
+
+will match "2,2-Dimethylbutane" and "2,3-Dimethylbutane".  Note that the
+period matches <EM>exactly one</EM> character-- it will not match
+a string of characters, nor will it match the null string.  Thus,
+"2,200-Dimethylbutane" and "2,-Dimenthylbutane" will <EM>not</EM> be matched
+by the above regular expression.<P>
+
+But what if you wanted to search for a string containing a period?  For
+example, suppose we wished to search for references to pi.  The following
+regular expression would <EM>not</EM> work:
+
+<PRE>  3.14     <STRONG>(THIS IS WRONG!)</STRONG></PRE>
+
+This would indeed match "3.14", but it would also match "3514", "3f14",
+or even "3+14".  In short, any string of the form "3x14", where x is any
+character, would be matched by the regular expression above.<P>
+
+To get around this, we introduce a second metacharacter, the <EM>backslash</EM>
+(<STRONG>\</STRONG>).  The backslash can be used to indicate that the character
+immediately to its right is to be taken literally.  Thus, to search for the
+string "3.14", we would use:
+
+<PRE>  3\.14    (This <EM>will</EM> work.)</PRE>
+
+This is called "quoting".  We would say that the period in the regular
+expression above has been quoted.  In general, whenever the backslash is
+placed before a metacharacter, the searcher treats the metacharacter literally
+rather than invoking its special meaning.<P>
+
+(Unfortunately, the backslash is used for other things besides quoting
+metacharacters.  Many "normal" characters take on special meanings when
+preceded by a backslash.  The rule of thumb is, quoting a metacharacter turns
+it into a normal character, and quoting a normal character <EM>may</EM> turn
+it into a metacharacter.)<P>
+
+Let's look at some more common metacharacters.  We consider first the <EM>
+question mark</EM> (<STRONG>?</STRONG>).  The question mark indicates that the
+character immediately preceding it either zero times or one time.  Thus
+
+<PRE>  m?ethane</PRE>
+
+would match either "ethane" or "methane".  Similarly,
+
+<PRE>  comm?a</PRE>
+
+would match either "coma" or "comma".<P>
+
+Another metacharacter is the <EM>star</EM> (<STRONG>*</STRONG>).  This indicates
+that the character immediately to its left may be repeated any number of times,
+including zero.  Thus
+
+<PRE>  ab*c</PRE>
+
+would match "ac", "abc", "abbc", "abbbc", "abbbbbbbbc", and any string that
+starts with an "a", is followed by a sequence of "b"'s, and ends with a "c".<P>
+
+The <EM>plus</EM> (<STRONG>+</STRONG>) metacharacter indicates that the character
+immediately preceding it may be repeated one or more times.  It is just like
+the star metacharacter, except it doesn't match the null string.  Thus
+
+<PRE>  ab+c</PRE>
+
+would <EM>not</EM> match "ac", but it <EM>would</EM> match "abc", "abbc",
+"abbbc", "abbbbbbbbc" and so on.<P>
+
+Metacharacters may be combined.  A common combination includes the period and
+star metacharacters, with the star immediately following the period.  This is
+used to match an arbitrary string of any length, including the null string.
+For example:
+
+<PRE>  cyclo.*ane</PRE>
+
+would match "cyclodecane", "cyclohexane" and even "cyclones drive me insane."
+Any string that starts with "cyclo", is followed by an arbitrary string, and
+ends with "ane" will be matched.  Note that the null string will be matched
+by the period-star pair; thus, "cycloane" would be matche by the above
+expression.<P>
+
+If you wanted to search for articles on cyclodecane and cyclohexane, but
+didn't want to match articles about how cyclones drive one insane, you could
+string together three periods, as follows:
+
+<PRE>  cyclo...ane</PRE>
+
+This would match "cyclodecane" and "cyclohexane", but would not match
+"cyclones drive me insane."  Only strings eleven characters long which start
+with "cyclo" and end with "ane" will be matched. (Note that "cyclopentane"
+would not be matched, however, since cyclopentane has twelve characters, not
+eleven.)<P>
+
+Here are some more examples.  These involve the backslash.  Note that the
+placement of backslash is important.
+
+<PRE>  a\.*z</PRE><DL><DD>
+  Matches any string starting with "a", followed by a series of periods
+  (including the "series" of length zero), and terminated by "z".  Thus,
+  "az", "a.z", "a..z", "a...z" and so forth are all matched.</DL>
+<PRE>  a.\*z</PRE><DL><DD>
+  (Note that the backslash and period are reversed in this regular expression.)
+  <P>
+  Matches any string starting with an "a", followed by one arbitrary
+  character, and terminated with "*z".  Thus, "ag*z", "a5*z" and "a@*z" are
+  all matched.  Only strings of length four, where the first character is "a",
+  the third "*", and the fourth "z", are matched.</DL>
+<PRE>  a\++z</PRE><DL><DD>
+  Matches any string starting with "a", followed by a series of plus signs,
+  and terminated by "z".  There must be at least one plus sign between the
+  "a" and the "z".  Thus, "az" is <EM>not</EM> matched, but "a+z", "a++z",
+  "a+++z", etc. will be matched.</DL>
+<PRE>  a\+\+z</PRE><DL><DD>
+  Matches only the string "a++z".</DL>
+<PRE>  a+\+z</PRE><DL><DD>
+  Matches any string starting with a series of "a"'s, followed by a single
+  plus sign and ending with a "z".  There must be at least one "a" at the
+  start of the string.  Thus "a+z", "aa+z", "aaa+z" and so on will match,
+  but "+z" will not.</DL>
+<PRE>  a.?e</PRE><DL><DD>
+  Matches "ace", "ale", "axe" and any other three-character string
+  beginning with "a" and ending with "e"; will also match "ae".</DL>
+<PRE>  a\.?e</PRE><DL><DD>
+  Matches "ae" and "a.e".  No other string is matched.</DL>
+<PRE>  a.\?e</PRE><DL><DD>
+  Matches any four-character string starting with "a" and ending with "?e".
+  Thus, "ad?e", "a1?e" and "a%?e" will all be matched.</DL>
+<PRE>  a\.\?e</PRE><DL><DD>
+  Matches only "a.?e" and nothing else.</DL>
+
+Earlier it was mentioned that the backslash can turn ordinary characters into
+metacharacters, as well as the other way around.  One such use of this is the
+<EM>digit</EM> metacharacter, which is invoked by following a backslash with
+a lower-case "d", like this: "<STRONG>\d</STRONG>".  The "d" <EM>must be lower
+case</EM>, for reasons explained later.  The digit metacharacter matches exactly
+one digit; that is, exactly one occurence of "0", "1", "2", "3", "4", "5",
+"6", "7", "8" or "9".  For example, the regular expression:
+
+<PRE>  2,\d-Dimethylbutane</PRE>
+
+would match "2,2-Dimethylbutane", "2,3-Dimethylbutane" and so forth.
+Similarly,
+
+<PRE>  1\.\d\d\d\d\d</PRE>
+
+would match any six-digit floating-point number from 1.00000 to 1.99999
+inclusive.  We could combine the digit metacharacter with other metacharacters;
+for instance,
+
+<PRE>  a\d+z</PRE>
+
+matches any string starting with "a", followed by a string of numbers, followed
+by a "z".  (Note that the plus is used, and thus "az" is not matched.)<P>
+
+The letter "d" in the string "<STRONG>\d</STRONG>" must be lower-case.  This is
+because there is another metacharacter, the <EM>non-digit</EM> metacharacter,
+which uses the uppercase "D".  The non-digit metacharacter looks like
+"<STRONG>\D</STRONG>" and matches any character <EM>except</EM> a digit.  Thus,
+
+<PRE>  a\Dz</PRE>
+
+would match "abz", "aTz" or "a%z", but would <EM>not</EM> match "a2z", "a5z"
+or "a9z".  Similarly,
+
+<PRE>  \D+</PRE>
+
+Matches any non-null string which contains <EM>no</EM> numeric characters.<P>
+
+Notice that in changing the "d" from lower-case to upper-case, we have
+reversed the meaning of the digit metacharacter.  This holds true for most
+other metacharacters of the format backslash-letter.<P>
+
+There are three other metacharacters in the backslash-letter format.  The first
+is the <EM>word</EM> metacharacter, which matches exactly one letter, one
+number, or the underscore character (<CODE>_</CODE>).  It is written as
+"<STRONG>\w</STRONG>".  It's opposite, "<STRONG>\W</STRONG>", matches any one character
+<EM>except</EM> a letter, a number or the underscore.  Thus,
+
+<PRE>  a\wz</PRE>
+
+would match "abz", "aTz", "a5z", "a_z", or any three-character string starting
+with "a", ending with "z", and whose second character was either a letter
+(upper- or lower-case), a number, or the underscore.  Similarly,
+
+<PRE>  a\Wz</PRE>
+
+would <EM>not</EM> match "abz", "aTz", "a5z", or "a_z".  It <EM>would</EM>
+match "a%z", "a{z", "a?z" or any three-character string starting with "a" and
+ending with "z" and whose second character was not a letter, number, or
+underscore.  (This means the second character must either be a symbol or a
+whitespace character.)<P>
+
+The <EM>whitespace</EM> metacharacter matches exactly one character of
+whitespace.  (Whitespace is defined as spaces, tabs, newlines, or any
+character which would not use ink if printed on a printer.)  The whitespace
+metacharacter looks like this: "<STRONG>\s</STRONG>".  It's opposite, which
+matches any character that is <EM>not</EM> whitespace, looks like this:
+"<STRONG>\S</STRONG>".  Thus,
+
+<PRE>  a\sz</PRE>
+
+would match any three-character string starting with "a" and ending with "z"
+and whose second character was a space, tab, or newline.  Likewise,
+
+<PRE>  a\Sz</PRE>
+
+would match any three-character string starting with "a" and ending with "z"
+whose second character was <EM>not</EM> a space, tab or newline.  (Thus, the
+second character could be a letter, number or symbol.)</P>
+
+The <EM>word boundary</EM> metacharacter matches the boundaries of words; that
+is, it matches whitespace, punctuation and the very beginning and end of the
+text.  It looks like "<STRONG>\b</STRONG>".  It's opposite searches for a character
+that is <EM>not</EM> a word boundary.  Thus:
+
+<PRE>  \bcomput</PRE>
+
+will match "computer" or "computing", but not "supercomputer" since there is
+no spaces or punctuation between "super" and "computer".  Similarly,
+
+<PRE>  \Bcomput</PRE>
+
+will <EM>not</EM> match "computer" or "computing", unless it is part of a
+bigger word such as "supercomputer" or "recomputing".<P>
+
+Note that the underscore (<CODE>_</CODE>) is considered a "word" character.
+Thus,
+
+<PRE>  super\bcomputer</PRE>
+
+will <EM>not</EM> match "super_computer".<P>
+
+There is one other metacharacter starting with a backslash, the <EM>octal</EM>
+metacharacter.  The octal metacharacter looks like this:  "<STRONG>\nnn</STRONG>",
+where "n" is a number from zero to seven.  This is used for specifying control
+characters that have no typed equivalent.  For example,
+
+<PRE>  \007</PRE>
+
+would find all subjects with an embedded ASCII "bell" character. (The bell is
+specified by an ASCII value of 7.) You will
+rarely need to use the octal metacharacter.<P>
+
+There are three other metacharacters that may be of use.  The first is the
+<EM>braces</EM> metacharacter.   This metacharacter follows a normal character
+and contains two number separated by a
+comma (<STRONG>,</STRONG>)
+and surrounded by braces (<STRONG>{}</STRONG>).  It is like the star
+metacharacter, except the length of the string
+it matches must be within the minimum and maximum length specified by the
+two numbers in braces.  Thus,
+
+<PRE>  ab{3,5}c</PRE>
+
+will match "abbbc", "abbbbc" or "abbbbbc".  No other string is matched.
+Likewise,
+
+<PRE>  .{3,5}pentane</PRE>
+
+will match "cyclopentane", "isopentane" or "neopentane", but not "n-pentane",
+since "n-" is only two characters long.<P>
+
+The alternative metacharacter is represented by a vertical bar
+(<STRONG>|</STRONG>).  It indicates an either/or behavior by separating two
+or more possible choices.  For example:
+
+<PRE>  isopentane|cyclopentane</PRE>
+
+will match any subject containing the strings "isopentane" or "cyclopentane" or
+both.  However, It will not match
+"pentane" or "n-pentane" or "neopentane."
+
+The last metacharacter is the <EM>brackets</EM> metacharacter.  The bracket
+metacharacter matches one occurence of any character inside the brackets
+(<STRONG>[]</STRONG>).  For example,
+
+<PRE>  \s[cmt]an\s</PRE>
+
+will match "can", "man" and "tan", but not "ban", "fan" or "pan".  Similarly,
+
+<PRE>  2,[23]-dimethylbutane</PRE>
+
+will match "2,2-dimethylbutane" or "2,3-dimethylbutane", but not
+"2,4-dimethylbutane", "2,23-dimethylbutane" or "2,-dimethybutane".
+
+Ranges of characters can be used by using the dash (<STRONG>-</STRONG>) within the
+brackets.  For example,
+
+<PRE>  a[a-d]z</PRE>
+
+will match "aaz", "abz", "acz" or "adz", and nothing else.  Likewise,
+
+<PRE>  textfile0[3-5]</PRE>
+
+will match "textfile03", "textfile04", or "textfile05" and nothing else.<P>
+
+If you wish to include a dash within brackets as one of the characters to
+match, instead of to denote a range, put the dash immediately before the
+right bracket.  Thus:
+
+<PRE>  a[1234-]z</PRE>
+
+and
+
+<PRE>  a[1-4-]z</PRE>
+
+both do the same thing.  They both match "a1z", "a2z", "a3z", "a4z" or "a-z",
+and nothing else.<P>
+
+The bracket metacharacter can also be inverted by placing a caret
+(<STRONG>^</STRONG>) immediately after the left bracket.  Thus,
+
+<PRE>  textfile0[^02468]</PRE>
+
+matches any ten-character string starting with "textfile0" and ending with
+anything except an even number.  Inversion and ranges can be combined, so that
+
+<PRE>  \W[^f-h]ood\W</PRE>
+
+matches any four letter wording ending in "ood" <EM>except</EM> for "food",
+"good" or "hood".  (Thus "mood" and "wood" would both be matched.)<P>
+
+Note that within brackets, ordinary quoting rules do not apply and other
+metacharacters are not available.  The only characters that can be quoted
+in brackets are "<CODE>[</CODE>", "<CODE>]</CODE>", and "<CODE>\</CODE>".
+Thus,
+
+<PRE>  [\[\\\]]abc</PRE>
+
+matches any four letter string ending with "abc" and starting with
+"<CODE>[</CODE>", "<CODE>]</CODE>", or "<CODE>\</CODE>".
+
+<A NAME="2.4"><H3>Forbidden Characters</H3>
+
+Because of the way the searcher works, the following metacharacters should
+<EM>not</EM> be used, even though they are valid Perl metacharacters.  They
+are:
+
+<DL>
+<DD><STRONG>^</STRONG> (allowed within brackets)
+<DD><STRONG>$</STRONG> (allowed within brackets)
+<DD><STRONG>\n</STRONG>
+<DD><STRONG>\r</STRONG>
+<DD><STRONG>\t</STRONG>
+<DD><STRONG>\f</STRONG>
+<DD><STRONG>\b</STRONG>
+<DD><STRONG>( )</STRONG> (allowed within brackets.  Note that if you wish to search for
+        parentheses within text outside of brackets, you should quote the
+        parentheses.)
+<DD><STRONG>\1</STRONG>, <STRONG>\2</STRONG> ... <STRONG>\9</STRONG>
+<DD><STRONG>\B</STRONG>
+<DD><STRONG>:</STRONG>
+<DD><STRONG>!</STRONG>
+</DL>
+
+<A NAME="2.5"><H3>Things To Remember</H3>
+
+Here are some other things you should know about regular expressions.
+
+<OL>
+<li>The archive search software searches only subject lines, and all
+articles within the same thread will also be displayed.<p>
+
+<li>Regular expressions should be a last resort.  Because they are
+complex, it can be more work mastering a search than just sifting
+through a long list of matches (unless you're already familiar
+with regular expressions).<p>
+
+<li>We limit the number of articles which can be shown to 200
+or less.  This is to minimize load on our system.<p>
+
+<LI>The search is case insensitive; thus
+
+    <PRE>  mopac</PRE>
+    and
+    <PRE>  Mopac</PRE>
+    and
+    <PRE>  MOPAC</PRE>
+
+    all search for the same set of strings.  Each will match "mopac", "MOPAC",
+    "Mopac", "mopaC", "MoPaC", "mOpAc" and so forth.  Thus you need not worry
+    about capitalization.  (Note, however, that metacharacter must still have
+    the proper case.  This is especially important for metacharacters whose
+    case determines whether their meaning is reversed or not.)<P>
+
+<LI>Outside of the brackets metacharacter, you must quote parentheses, brackets
+    and braces to get the searcher to take them literally.
+
+</OL>
+
+<hr>
+<center>
+<font size=-2><i>Copyright (c) Carl Franklin and Gary Wisniewski,
+1994-1996.  All rights reserved.</i>
+<br>Design and production courtesy
+<a href="http://www.gui.com.au/online/">GUI Online Productions</a></font>
+</center>
+</body>
+</html>
+

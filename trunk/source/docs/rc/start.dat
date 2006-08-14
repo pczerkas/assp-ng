@@ -1,0 +1,23 @@
+#!/bin/sh
+#
+# 'stop' - Shell script a la RedHat initialization routines
+# R. Toth - May/2003
+# V1.00 - Initial attempt at creating a fully compatible and compliant
+# shutdown script that's called out of '/etc/init.d'  (linked appropriately
+# to the rc-level you are running in.  You can link this as 'K31assp', so that ASSP is 
+# terminated just after 'sendmail', in case you are also
+# running sendmail locally for your Email needs.
+#
+
+if [ "$1" = "" ]
+then 
+BASE=/usr/local/assp;
+else
+BASE=$1;
+fi
+export BASE
+echo Starting ASSP Anti-SPAM Proxy server in $BASE
+trap '' 1
+LANG=
+export LANG
+exec $BASE/assp.pl $BASE
