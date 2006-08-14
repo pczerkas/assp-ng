@@ -56,23 +56,23 @@ $URICharRe='(?:[=%][0-9a-f]{2}|\#\&\d{1,3};?|[0-9a-z\-\_\.\@]|\=(?:\015?\012|\01
 
 # detect installed modules
 sub detectModules {
- $CanUseLDAP=eval{use Net::LDAP; 1}; # Net LDAP module installed
- $CanUseAddress=eval{use Email::Valid; 1}; # Email Valid module installed
- $CanUseDNS=eval{use Net::DNS; 1}; # Net DNS module installed - required for SPF, RBL, URIBL & Tooltips
- $AvailSPF=eval{use Mail::SPF::Query; 1}; # Mail SPF module installed
+ $CanUseLDAP=eval('use Net::LDAP; 1'); # Net LDAP module installed
+ $CanUseAddress=eval('use Email::Valid; 1'); # Email Valid module installed
+ $CanUseDNS=eval('use Net::DNS; 1'); # Net DNS module installed - required for SPF, RBL, URIBL & Tooltips
+ $AvailSPF=eval('use Mail::SPF::Query; 1'); # Mail SPF module installed
  $CanUseSPF=$AvailSPF && $CanUseDNS; # SPF and dependancies installed
  $CanUseURIBL=$CanUseRWL=$CanUseRBL=$CanUseDNS; # URIBL, RWL, RBL and dependancies installed
- $AvailSRS=eval{use Mail::SRS; 1}; # Mail SRS module installed
+ $AvailSRS=eval('use Mail::SRS; 1'); # Mail SRS module installed
  $CanUseSRS=$AvailSRS;
- $AvailZlib=eval{use Compress::Zlib; 1}; # Zlib module installed
+ $AvailZlib=eval('use Compress::Zlib; 1'); # Zlib module installed
  $CanUseHTTPCompression=$AvailZlib;
- $AvailMD5=eval{use Digest::MD5; 1}; # Digest MD5 module installed
+ $AvailMD5=eval('use Digest::MD5; 1'); # Digest MD5 module installed
  $CanUseMD5Keys=$AvailMD5;
- $AvailReadBackwards=eval{use File::ReadBackwards; 1}; # ReadBackwards module installed;
+ $AvailReadBackwards=eval('use File::ReadBackwards; 1'); # ReadBackwards module installed;
  $CanSearchLogs=$AvailReadBackwards;
- $AvailHiRes=eval{use Time::HiRes; 1}; # Time::HiRes module installed;
+ $AvailHiRes=eval('use Time::HiRes; 1'); # Time::HiRes module installed;
  $CanStatCPU=$AvailHiRes;
- $AvailIPRegexp=eval{use Net::IP::Match::Regexp; 1}; # Net::IP::Match::Regexp module installed
+ $AvailIPRegexp=eval('use Net::IP::Match::Regexp; 1'); # Net::IP::Match::Regexp module installed
  $CanMatchCIDR=$AvailIPRegexp;
 }
 
