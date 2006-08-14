@@ -1,0 +1,15 @@
+auto-submitted\:.*?auto-replied
+automated.response
+autoreply
+bounce
+content-type\:.*?message\/delivery-status
+content-type\:.*?multipart\/report
+in-reply-to\:.*?<parcel
+remove
+report-type.*?\=.*?delivery-status
+report-type.*?\=.*?disposition-notification
+subject\:.*?delivered:
+subject\:.*?undeliverable\:
+subject\:.*out.of.office
+unsubscribe
+x-assp-spam\:.yes
