@@ -162,7 +162,7 @@ sub main {
   my $oldfh=select(SLOG); $|=1; select($oldfh);
  }
  if ($AsAService) {
-  eval{
+  eval(<<'EOT');
    use Win32::Daemon;
    mlog(0,'starting as a service');
    Win32::Daemon::StartService();
@@ -186,7 +186,7 @@ sub main {
      }
     });
    }
-  };
+EOT
   print STDERR "error: $@\n" if $@;
   print LOG "error: $@\n" if $@;
  }
@@ -218,64 +218,64 @@ sub main {
 sub initModules {
  my $v;
  if ($CanUseLDAP) {
-  $v=eval{Net::LDAP->VERSION}; $v=" version $v" if $v;
+  $v=eval('Net::LDAP->VERSION'); $v=" version $v" if $v;
   mlog(0,"Net::LDAP module$v installed and available");
  } else {
   mlog(0,'Net::LDAP module not installed');
  }
  if ($CanUseDNS) {
-  $v=eval{Net::DNS->VERSION}; $v=" version $v" if $v;
+  $v=eval('Net::DNS->VERSION'); $v=" version $v" if $v;
   mlog(0,"Net::DNS module$v installed and available");
  } else {
   mlog(0,'Net::DNS module not installed');
  }
  if ($CanUseAddress) {
-  $v=eval{Email::Valid->VERSION}; $v=" version $v" if $v;
+  $v=eval('Email::Valid->VERSION'); $v=" version $v" if $v;
   mlog(0,"Email::Valid module$v installed and available");
  } else {
   mlog(0,'Email::Valid module not installed');
  }
  if ($CanUseSPF) {
-  $v=eval{Mail::SPF::Query->VERSION}; $v=" version $v" if $v;
+  $v=eval('Mail::SPF::Query->VERSION'); $v=" version $v" if $v;
   mlog(0,"Mail::SPF::Query module$v installed and available");
  } elsif ($AvailSPF) {
-  $v=eval{Mail::SPF::Query->VERSION}; $v=" version $v" if $v;
+  $v=eval('Mail::SPF::Query->VERSION'); $v=" version $v" if $v;
   mlog(0,"Mail::SPF::Query module$v installed but Net::DNS required");
  } else {
   mlog(0,'Mail::SPF::Query module not installed');
  }
  if ($CanUseSRS) {
-  $v=eval{Mail::SRS->VERSION}; $v=" version $v" if $v;
+  $v=eval('Mail::SRS->VERSION'); $v=" version $v" if $v;
   mlog(0,"Mail::SRS module$v installed - Sender Rewriting Scheme available");
  } elsif (!$AvailSRS) {
   mlog(0,'Mail::SRS module not installed - Sender Rewriting Scheme disabled');
  }
  if ($CanUseHTTPCompression) {
-  $v=eval{Compress::Zlib->VERSION}; $v=" version $v" if $v;
+  $v=eval('Compress::Zlib->VERSION'); $v=" version $v" if $v;
   mlog(0,"Compress::Zlib module$v installed - HTTP compression available");
  } elsif (!$AvailZlib) {
   mlog(0,'Compress::Zlib module not installed - HTTP compression disabled');
  }
  if ($CanUseMD5Keys) {
-  $v=eval{Digest::MD5->VERSION}; $v=" version $v" if $v;
+  $v=eval('Digest::MD5->VERSION'); $v=" version $v" if $v;
   mlog(0,"Digest::MD5 module$v installed - delaying will use MD5 keys for hashes");
  } elsif (!$AvailMD5) {
   mlog(0,'Digest::MD5 module not installed - delaying will use plain text keys for hashes');
  }
  if ($CanSearchLogs) {
-  $v=eval{File::ReadBackwards->VERSION}; $v=" version $v" if $v;
+  $v=eval('File::ReadBackwards->VERSION'); $v=" version $v" if $v;
   mlog(0,"File::ReadBackwards module$v installed - searching of log files enabled");
  } elsif (!$AvailReadBackwards) {
   mlog(0,'File::ReadBackwards module not installed - searching of log files disabled');
  }
  if ($CanStatCPU) {
-  $v=eval{Time::HiRes->VERSION}; $v=" version $v" if $v;
+  $v=eval('Time::HiRes->VERSION'); $v=" version $v" if $v;
   mlog(0,"Time::HiRes module$v installed - CPU usage statistics available");
  } elsif (!$AvailHiRes) {
   mlog(0,'Time::HiRes module not installed - CPU usage statistics disabled');
  }
  if ($CanMatchCIDR) {
-  $v=eval{Net::IP::Match::Regexp->VERSION}; $v=" version $v" if $v;
+  $v=eval('Net::IP::Match::Regexp->VERSION'); $v=" version $v" if $v;
   mlog(0,"Net::IP::Match::Regexp module$v installed - IP addresses in RE's can use CIDR notation");
  } elsif (!$AvailIPRegexp) {
   mlog(0,'Net::IP::Match::Regexp module not installed - CIDR notation for IP addresses in RE\'s disabled');
@@ -5744,7 +5744,7 @@ sub ok2Relay {
 sub PopB4SMTP {
  return 0 unless $PopB4SMTPFile;
  unless ($TriedDBFileUse) {
-  eval{use DB_File};
+  eval('use DB_File');
   mlog(0,"could not load module DB_File: $@") if $@;
   $TriedDBFileUse=1;
  }
@@ -6100,219 +6100,217 @@ package RBL;
 use IO::Socket;
 
 sub new {
-  # This avoids compile time errors if Net::DNS is not installed.
-  # The error will be returned on the lookup function call.
-  if ($main::CanUseDNS) {
-   require Net::DNS::Packet;
-   $CanUseDNS=1;
-  }
-  my ($class, %args)=@_;
-  my $self={lists       => [ lists() ],
-            query_txt   => 1,
-            max_time    => 10,
-            timeout     => 1,
-            max_hits    => 3,
-            max_replies => 6,
-            udp_maxlen  => 4000,
-            server      => '127.0.0.1'};
-  bless $self, $class;
-  foreach my $key(keys %args) {
-    defined($self->{$key}) or return "Invalid key: $key";
-    $self->{$key}=$args{$key};
-  }
-  $self;
+ # This avoids compile time errors if Net::DNS is not installed.
+ # The error will be returned on the lookup function call.
+ if ($main::CanUseDNS) {
+  require Net::DNS::Packet;
+  $CanUseDNS=1;
+ }
+ my ($class, %args)=@_;
+ my $self={lists       => [ lists() ],
+           query_txt   => 1,
+           max_time    => 10,
+           timeout     => 1,
+           max_hits    => 3,
+           max_replies => 6,
+           udp_maxlen  => 4000,
+           server      => '127.0.0.1'};
+ bless $self, $class;
+ foreach my $key(keys %args) {
+  defined($self->{$key}) or return "Invalid key: $key";
+  $self->{$key}=$args{$key};
+ }
+ $self;
 }
 
 sub lookup {
-  my ($self,$fh,$target)=@_;
-  my ($deadline,$sock,$i,$j,%times,$list,$msg_a,$msg_t,$msg,$needed,$hits,$replies,$time,$domain,$res,$type);
-  return sub{&main::jump;
-    return unless $CanUseDNS;
-    $target=join '.', reverse(split /\./, $target) if $target=~/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-    $sock=IO::Socket::INET->new(Proto     => 'udp',
-                                PeerPort  => 53,
-                                PeerAddr  => $self->{server});
-    unless ($sock) {
-      main::mlog(0,"Failed to create UDP client");
+ my ($self,$fh,$target)=@_;
+ my ($deadline,$sock,$i,$j,%times,$list,$msg_a,$msg_t,$msg,$needed,$hits,$replies,$time,$domain,$res,$type);
+ return sub{&main::jump;
+  return unless $CanUseDNS;
+  $target=join '.', reverse(split /\./, $target) if $target=~/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+  $sock=IO::Socket::INET->new(Proto     => 'udp',
+                              PeerPort  => 53,
+                              PeerAddr  => $self->{server});
+  unless ($sock) {
+   main::mlog(0,"Failed to create UDP client");
+   return;
+  }
+  # Fisher-Yates shuffle
+  $i=@{$self->{lists}};
+  if ($i) {
+   while (--$i) {
+    $j=int rand($i+1);
+    @{$self->{lists}}[$i,$j]=@{$self->{lists}}[$j,$i];
+   }
+  }
+  %times={};
+  if ($self->{query_txt}) {
+   foreach $list(@{$self->{lists}}) {
+    ($msg_a, $msg_t)=mk_packet($target, $list);
+    foreach ($msg_a, $msg_t) {
+     unless ($sock->send($_)) {
+      main::mlog(0,"RBL lookup send: $!");
+      close($sock);
       return;
+     }
     }
-    # Fisher-Yates shuffle
-    $i=@{$self->{lists}};
-    if ($i) {
-      while (--$i) {
-        $j=int rand($i+1);
-        @{$self->{lists}}[$i,$j]=@{$self->{lists}}[$j,$i];
-      }
+    $times{$list}=Time::HiRes::time() if $main::AvailHiRes;
+   }
+  } else {
+   foreach $list(@{$self->{lists}}) {
+    $msg=mk_packet($target, $list);
+    unless ($sock->send($msg)) {
+     main::mlog(0,"RBL lookup send: $!");
+     close($sock);
+     return;
     }
-    %times={};
-    if ($self->{query_txt}) {
-      foreach $list(@{$self->{lists}}) {
-        ($msg_a, $msg_t)=mk_packet($target, $list);
-        foreach ($msg_a, $msg_t) {
-          unless ($sock->send($_)) {
-            main::mlog(0,"RBL lookup send: $!");
-            close($sock);
-            return;
-          }
-        }
-##        $main::Stats{"providerQueries$list"}++;
-        $times{$list}=Time::HiRes::time() if $main::AvailHiRes;
-      }
-    } else {
-      foreach $list(@{$self->{lists}}) {
-        $msg=mk_packet($target, $list);
-        unless ($sock->send($msg)) {
-          main::mlog(0,"RBL lookup send: $!");
-          close($sock);
-          return;
-        }
-##        $main::Stats{"providerQueries$list"}++;
-        $times{$list}=Time::HiRes::time() if $main::AvailHiRes;
-      }
-    }
-    $self->{results}={};
-    $self->{txt}={};
-    if ($self->{max_replies}>@{$self->{lists}}) {
-      $needed=@{$self->{lists}};
-    } else {
-      $needed=$self->{max_replies};
-    }
-    $needed <<= 1 if $self->{query_txt}; # how many packets needed back
-    $hits=$replies=0;
-    $deadline=time+$self->{max_time};
-    # Keep receiving packets until one of the exit conditions is met:
-    main::mlogCond($fh,"Commencing RBL checks on $target",$main::RBLLog);
-    while ($needed && time<$deadline) {
-      main::waitTaskRead(0,$sock,$self->{timeout});
-      return main::cede('L1'); L1:
-      next unless main::getTaskWaitResult(0);
-      unless ($sock->recv($msg, $self->{udp_maxlen})) {
-        main::mlog(0,"RBL lookup recv: $!");
-        close($sock);
-        return;
-      }
-      if ($msg) {
-        ($domain, $res, $type)=decode_packet($fh,$msg,$target);
-        if (defined $type && $type eq 'TXT') {
-          $self->{txt}{$domain}=$res
-        } else {
-          if ($res) {
-            $hits ++;
-            $self->{results}{$domain}=$res;
-            $main::Stats{"providerHits$domain"}++;
-          }
-          $replies ++;
-          $main::Stats{"providerReplies$domain"}++;
-          if ($main::AvailHiRes) {
-           $time=Time::HiRes::time()-$times{$domain};
-           $main::Stats{"providerTime$domain"}+=$time;
-           $main::Stats{"providerMaxTime$domain"}=$time if $time>$main::Stats{"providerMaxTime$domain"};
-           $main::Stats{"providerMinTime$domain"}=$time if $time<$main::Stats{"providerMinTime$domain"} || !$main::Stats{"providerMinTime$domain"};
-          }
-          last if $hits>=$self->{max_hits} || $replies>=$self->{max_replies};
-        }
-        $needed --;
-      }
-    }
-    main::mlogCond($fh,"Completed RBL checks on $target",$main::RBLLog);
-    close ($sock);
+    $times{$list}=Time::HiRes::time() if $main::AvailHiRes;
+   }
+  }
+  $self->{results}={};
+  $self->{txt}={};
+  if ($self->{max_replies}>@{$self->{lists}}) {
+   $needed=@{$self->{lists}};
+  } else {
+   $needed=$self->{max_replies};
+  }
+  $needed <<= 1 if $self->{query_txt}; # how many packets needed back
+  $hits=$replies=0;
+  $deadline=time+$self->{max_time};
+  # Keep receiving packets until one of the exit conditions is met:
+  main::mlogCond($fh,"Commencing RBL checks on $target",$main::RBLLog);
+  while ($needed && time<$deadline) {
+   main::waitTaskRead(0,$sock,$self->{timeout});
+   return main::cede('L1'); L1:
+   next unless main::getTaskWaitResult(0);
+   unless ($sock->recv($msg, $self->{udp_maxlen})) {
+    main::mlog(0,"RBL lookup recv: $!");
+    close($sock);
     return;
-  };
+   }
+   if ($msg) {
+    ($domain, $res, $type)=decode_packet($fh,$msg,$target);
+    if (defined $type && $type eq 'TXT') {
+     $self->{txt}{$domain}=$res
+    } else {
+     if ($res) {
+      $hits ++;
+      $self->{results}{$domain}=$res;
+      $main::Stats{"providerHits$domain"}++;
+     }
+     $replies ++;
+     $main::Stats{"providerReplies$domain"}++;
+     if ($main::AvailHiRes) {
+      $time=Time::HiRes::time()-$times{$domain};
+      $main::Stats{"providerTime$domain"}+=$time;
+      $main::Stats{"providerMaxTime$domain"}=$time if $time>$main::Stats{"providerMaxTime$domain"};
+      $main::Stats{"providerMinTime$domain"}=$time if $time<$main::Stats{"providerMinTime$domain"} || !$main::Stats{"providerMinTime$domain"};
+     }
+     last if $hits>=$self->{max_hits} || $replies>=$self->{max_replies};
+    }
+    $needed --;
+   }
+  }
+  main::mlogCond($fh,"Completed RBL checks on $target",$main::RBLLog);
+  close ($sock);
+  return;
+ };
 }
 
 sub listed_by {
-  my $self=shift;
-  sort keys %{$self->{results}};
+ my $self=shift;
+ sort keys %{$self->{results}};
 }
 
 sub listed_hash {
-  my $self=shift;
-  %{$self->{results}};
+ my $self=shift;
+ %{$self->{results}};
 }
 
 sub txt_hash {
-  my $self=shift;
-  warn <<EOT unless $self->{query_txt};
+ my $self=shift;
+ warn <<EOT unless $self->{query_txt};
 Without query_txt turned on, you won't get any results from ->txt_hash().
 EOT
-  if (wantarray) { %{$self->{txt}} }
-  else { $self->{txt} }
+ if (wantarray) { %{$self->{txt}} }
+ else { $self->{txt} }
 }
 
 # End methods - begin internal functions
 
 sub mk_packet {
-  # pass me a target and a blocklist domain
-  my ($target, $list)=@_;
-  my ($packet, $error)=new Net::DNS::Packet(my $fqdn="$target.$list", 'A');
-  unless ($packet) {
-    main::mlog(0,"Cannot build DNS query for $fqdn, type A: $error");
-    return;
-  }
-  return $packet->data unless wantarray;
-  my ($txt_packet, $error)=new Net::DNS::Packet($fqdn, 'TXT', 'IN');
-  unless ($txt_packet) {
-    main::mlog(0,"Cannot build DNS query for $fqdn, type TXT: $error");
-    return;
-  }
-  $packet->data, $txt_packet->data;
+ # pass me a target and a blocklist domain
+ my ($target, $list)=@_;
+ my ($packet, $error)=new Net::DNS::Packet(my $fqdn="$target.$list", 'A');
+ unless ($packet) {
+  main::mlog(0,"Cannot build DNS query for $fqdn, type A: $error");
+  return;
+ }
+ return $packet->data unless wantarray;
+ my ($txt_packet, $error)=new Net::DNS::Packet($fqdn, 'TXT', 'IN');
+ unless ($txt_packet) {
+  main::mlog(0,"Cannot build DNS query for $fqdn, type TXT: $error");
+  return;
+ }
+ $packet->data, $txt_packet->data;
 }
 
 sub decode_packet {
-  # takes a raw DNS response packet
-  # returns domain, response
-  my ($fh,$data,$target)=@_;
-  my $packet=Net::DNS::Packet->new(\$data);
-  my @answer=$packet->answer;
-  {
-    my ($res, $domain, $type);
-    foreach my $answer (@answer) {
-      {
-        # removed $answer->answerfrom because it caused an error
-        # with some types of answers
+ # takes a raw DNS response packet
+ # returns domain, response
+ my ($fh,$data,$target)=@_;
+ my $packet=Net::DNS::Packet->new(\$data);
+ my @answer=$packet->answer;
+ {
+  my ($res, $domain, $type);
+  foreach my $answer (@answer) {
+   {
+    # removed $answer->answerfrom because it caused an error
+    # with some types of answers
 
-        my $name=lc $answer->name;
-        main::mlogCond($fh,"Packet contained answers to different domains ($domain != $name)",$main::RBLLog)
-          if defined $domain && $name ne $domain;
-        $domain=$name;
-      }
-      $domain=~s/\Q$target\E\.//;
-      $type=$answer->type;
-      $res=$type eq 'A'     ? inet_ntoa($answer->rdata) :
-           $type eq 'CNAME' ? cleanup($answer->rdata) :
-           $type eq 'TXT'   ? (defined $res && "$res; ").$answer->txtdata :
-                              '?';
-      last unless $type eq 'TXT';
-    }
-    return $domain, $res, $type if defined $res;
+    my $name=lc $answer->name;
+    main::mlogCond($fh,"Packet contained answers to different domains ($domain != $name)",$main::RBLLog)
+     if defined $domain && $name ne $domain;
+    $domain=$name;
+   }
+   $domain=~s/\Q$target\E\.//;
+   $type=$answer->type;
+   $res=$type eq 'A'     ? inet_ntoa($answer->rdata) :
+        $type eq 'CNAME' ? cleanup($answer->rdata) :
+        $type eq 'TXT'   ? (defined $res && "$res; ").$answer->txtdata :
+                           '?';
+   last unless $type eq 'TXT';
   }
-  # OK, there were no answers -
-  # need to determine which domain
-  # sent the packet.
-  my @question=$packet->question;
-  foreach my $question(@question) {
-    my $domain=$question->qname;
-    $domain=~s/\Q$target\E\.//;
-    return($domain, undef);
-  }
+  return $domain, $res, $type if defined $res;
+ }
+ # OK, there were no answers -
+ # need to determine which domain
+ # sent the packet.
+ my @question=$packet->question;
+ foreach my $question(@question) {
+  my $domain=$question->qname;
+  $domain=~s/\Q$target\E\.//;
+  return($domain, undef);
+ }
 }
 
 sub cleanup {
-  # remove control chars and stuff
-  $_[0]=~tr/a-zA-Z0-9./ /cs;
-  $_[0];
+ # remove control chars and stuff
+ $_[0]=~tr/a-zA-Z0-9./ /cs;
+ $_[0];
 }
 
 
 sub lists {
-  qw(bl.spamcop.net
-     cbl.abuseat.org
-     sbl-xbl.spamhaus.org
-     dnsbl.njabl.org
-     list.dsbl.org
-     dnsbl.sorbs.net
-     opm.blitzed.org
-     dynablock.njabl.org);
+ qw(bl.spamcop.net
+    cbl.abuseat.org
+    sbl-xbl.spamhaus.org
+    dnsbl.njabl.org
+    list.dsbl.org
+    dnsbl.sorbs.net
+    opm.blitzed.org
+    dynablock.njabl.org);
 }
 
 }
