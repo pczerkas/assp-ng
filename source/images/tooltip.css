@@ -1,0 +1,24 @@
+.tooltip_pop {
+ position: absolute;
+ display: none;
+ background-color: #e9e9e9;
+ padding: 3px;
+ border: #BFBFBF 1px solid;
+ font-size: smaller;
+ font-weight: bold;
+ }
+.tooltip_elem {
+ color: #CC5500;
+ }
+.tooltip_email {
+ background-color: aqua;
+ }
+.tooltip_ip {
+ background-color: yellow;
+ }
+.tooltip_host {
+ background-color: lime;
+ }
+.context .tooltip_elem {
+ color: #E5AA7F;
+ }
