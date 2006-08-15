@@ -1233,6 +1233,7 @@ sub configInitRE {
       $c->[6]==\&configMakeSLIPRe ||
       $c->[6]==\&configCompileRe ||
       $c->[6]==\&configUpdateRBLSP ||
+      $c->[6]==\&configUpdateRWLSP ||
       $c->[6]==\&configUpdateURIBLSP) {
    $c->[6]->($c->[0],'',${$c->[0]},'Initializing',$c->[1]);
    push(@PossibleOptionFiles,[$c->[0],$c->[1],$c->[6]]);
