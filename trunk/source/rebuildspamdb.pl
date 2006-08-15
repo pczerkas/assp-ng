@@ -42,9 +42,6 @@ configInit();
 configInitRE();
 configInitUpdate();
 
-sleep(30);
-exit;
-
 # data for DayOfWeek function
 #my %Months=(Jan,1,Feb,2,Mar,3,Apr,4,May,5,Jun,6,Jul,7,Aug,8,Sep,9,Oct,10,Nov,11,Dec,12);
 #my %Month=(1,0,2,3,3,2,4,5,5,0,6,3,7,5,8,1,9,4,10,6,11,2,12,4,);
