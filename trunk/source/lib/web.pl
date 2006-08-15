@@ -138,8 +138,6 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
                  [1,'Other Traffic:','negative','rbytesotherblocked'],
                  [0,'Server Bytes Aborted:','negative','wbytesServerAborted']);
 
-@StatsProvItems=('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist);
-
 #####################################################################################
 #                HTTP Socket handlers
 
@@ -3896,7 +3894,7 @@ EOT
       </tbody>
       <tbody id="StatItem9" class="$gpc->{StatItem9}">
 EOT
-  foreach $i (@StatsProvItems) {
+  foreach $i ('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist) {
    if ($i=~/\./) {
     # provider
     $name=('&nbsp;'x4).$i;
