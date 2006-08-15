@@ -39,7 +39,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
        'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','SenderBomb','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
        'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','SPFExtra','noSPF','SPFError',
-       'ValidateRWL','RWLPosition','AddRWLHeader','RWLServiceProvider','RWLmaxreplies','RWLminhits','RWLmaxtime','noRWL',
+       'ValidateRWL','AddRWLHeader','RWLServiceProvider','RWLmaxreplies','RWLminhits','RWLmaxtime','noRWL',
        'RBLPosition','RBLExtra','RBLServiceProvider','noRBL','RBLError','noSRS','SRSRewriteToHeader','SRSBounceError',
        'EnableMsgVerify','MsgVerifyExtra','MsgVerifyHeaders','MsgVerifyLineLength','noMsgVerify','noBombScript',
        'noAttachment','ValidateURIBL','URIBLExtra','AddURIBLHeader','URIBLServiceProvider','URIBLCCTLDS',
@@ -1758,7 +1758,7 @@ EOT
 sub webCorpusItem {
  my ($coll,$fn,$det,$gpc,$good,$bad)=@_;
  return '' unless defined $det->[0];
- return '' if $gpc->{nomoved} && $det->[4] & 2;
+ return '' if $gpc->{nomoved} && ($det->[4] & 2);
  if (@{$good} || @{$bad}) {
   PeekLoop();
   open(I,"$base/${$coll}/$fn");
@@ -2791,20 +2791,18 @@ EOT
     local $/;
     $s=<F>;
     close F;
-    %mimeTypes=(
-     'log|txt|pl' => 'text/plain',
-     'htm|html' => 'text/html',
-     'css' => 'text/css',
-     'bmp' => 'image/bmp',
-     'gif' => 'image/gif',
-     'jpg|jpeg' => 'image/jpeg',
-     'png' => 'image/png',
-     'zip' => 'application/zip',
-     'sh' => 'application/x-sh',
-     'gz|gzip' => 'application/x-gzip',
-     'exe' => 'application/octet-stream',
-     'js' => 'application/x-javascript'
-    );
+    %mimeTypes=('log|txt|pl' => 'text/plain',
+                'htm|html' => 'text/html',
+                'css' => 'text/css',
+                'bmp' => 'image/bmp',
+                'gif' => 'image/gif',
+                'jpg|jpeg' => 'image/jpeg',
+                'png' => 'image/png',
+                'zip' => 'application/zip',
+                'sh' => 'application/x-sh',
+                'gz|gzip' => 'application/x-gzip',
+                'exe' => 'application/octet-stream',
+                'js' => 'application/x-javascript');
     $ct='text/plain'; # default content-type
     while (($k,$v)=each(%mimeTypes)) {
      if ($fil=~/\.(\Q$k\E)$/i) {

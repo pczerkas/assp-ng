@@ -1422,6 +1422,7 @@ sub stateReset {
  $this->{delayed}=$this->{spamfound}=0;
  $this->{inmailfrom}=$this->{indata}=$this->{inerror}=0;
  $this->{coll}=$this->{maillength}=$this->{spamprob}=0;
+ $this->{mailfromlocal}=$this->{mailfromonwl}=0;
  $this->{noprocessing}=2; # clear this later if !noprocessing
  # clear these later if !spamLover
  $this->{allLoveSpam}=$this->{allLoveHlSpam}=$this->{allLoveMfSpam}=$this->{allLoveBlSpam}=1;
@@ -1486,59 +1487,52 @@ sub getLine {
     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
     $Stats{senderWhitelisted}++;
    }
+
+##   # early (pre-rcpt) checks
+##   unless ($this->{noprocessing} & 1 || $this->{mWLDRE}) {
+##    return if $RateLimitPosition==3 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,0)<0;
+##    return if $HeloPosition==2 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh)<0;
+##    return if $SenderPosition==1 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh)<0;
+##    checkSPF($fh) if $SPFPosition==1 && ($SPFWL || !$this->{mailfromonwl});
+##    return call('L1',checkRBL($fh)) if $RBLPosition==3 && ($RBLWL || !$this->{mailfromonwl}); L1:
+##    return if checkNonLate($fh,0)<0;
+##   }
+
    # early (pre-rcpt) checks
-   unless ($this->{noprocessing} & 1 || $this->{mWLDRE}) {
-    return if $RateLimitPosition==3 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,0)<0;
-    return if $HeloPosition==2 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh)<0;
-    return if $SenderPosition==1 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh)<0;
-    checkSPF($fh) if $SPFPosition==1 && ($SPFWL || !$this->{mailfromonwl});
-    return call('L1',checkRBL($fh)) if $RBLPosition==3 && ($RBLWL || !$this->{mailfromonwl}); L1:
-    return if checkNonLate($fh,0)<0;
+   $doRateLimit=$RateLimitPosition==3 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 1)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doHelo=$HeloPosition==2 && (($HeloExtra & 1) || !($this->{noprocessing} & 1)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSender=$SenderPosition==1 && (($SenderExtra & 1) || !($this->{noprocessing} & 1)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSPF=$SPFPosition==1 && (($SPFExtra & 1) || !($this->{noprocessing} & 1)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doRBL=$RBLPosition==3 && (($RBLExtra & 1) || !($this->{noprocessing} & 1)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
+   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
+   return if $doSender && ($SenderExtra & 4) && checkSender($fh)<0;
+   checkSPF($fh) if $doSPF && ($SPFExtra & 4);
+   return call('L1',checkRBL($fh)) if $doRBL && ($RBLExtra & 4); L1:
+   return if checkNonLate($fh,0)<0;
+   if ($doRateLimit && !($RateLimitExtra & 4) ||
+       $doHelo && !($HeloExtra & 4) ||
+       $doSender && !($SenderExtra & 4) ||
+       $doSPF && !($SPFExtra & 4) ||
+       $doRBL && !($RBLExtra & 4)) {
+    return call('L2',checkRWL($fh)); L2:
+    unless ($this->{rwlok}) {
+     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
+     return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
+     return if $doSender && !($SenderExtra & 4) && checkSender($fh)<0;
+     checkSPF($fh) if $doSPF && !($SPFExtra & 4);
+     return call('L3',checkRBL($fh)) if $doRBL && !($RBLExtra & 4); L3:
+     return if checkNonLate($fh,0)<0;
+    }
    }
-
-
-##   $doRateLimit=$RateLimitPosition==3 &&
-##                $RateLimitExtra & 1 || !($this->{noprocessing} & 1) &&
-##                $RateLimitExtra & 2 || !($this->{mailfromonwl} || $this->{mWLDRE});
-##   $doHelo=$HeloPosition==2 &&
-##           $HeloExtra & 1 || !($this->{noprocessing} & 1) &&
-##           $HeloExtra & 2 || !($this->{mailfromonwl} || $this->{mWLDRE});
-##   $doSender=$SenderPosition==1 &&
-##             $SenderExtra & 1 || !($this->{noprocessing} & 1) &&
-##             $SenderExtra & 2 || !($this->{mailfromonwl} || $this->{mWLDRE});
-##   $doSPF=$SPFPosition==1 &&
-##          $SPFExtra & 1 || !($this->{noprocessing} & 1) &&
-##          $SPFExtra & 2 || !($this->{mailfromonwl} || $this->{mWLDRE});
-##   $doRBL=$RBLPosition==3 &&
-##          $RBLExtra & 1 || !($this->{noprocessing} & 1) &&
-##          $RBLExtra & 2 || !($this->{mailfromonwl} || $this->{mWLDRE});
-##
-##   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
-##   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
-##   return if $doSender && ($SenderExtra & 4) && checkSender($fh)<0;
-##   checkSPF($fh) if $doSPF && ($SPFExtra & 4);
-##   return call('L1',checkRBL($fh)) if $doRBL && ($RBLExtra & 4); L1:
-##   return if checkNonLate($fh,0)<0;
-##
-##   return call('L1',checkRWL($fh)) if $RWLPosition==3; L1:
-##
-##   return if $doRateLimit && !($RateLimitExtra & 4) && !$this->{rwlok} && checkRateLimitBlock($fh,0)<0;
-##   return if $doHelo && !($HeloExtra & 4) && !$this->{rwlok} && checkHelo($fh)<0;
-##   return if $doSender && !($SenderExtra & 4) && !$this->{rwlok} && checkSender($fh)<0;
-##   checkSPF($fh) if $doSPF && !($SPFExtra & 4) && !$this->{rwlok};
-##   return call('L1',checkRBL($fh)) if $doRBL && !($RBLExtra & 4) && !$this->{rwlok}; L1:
-##   return if checkNonLate($fh,0)<0;
-
 
    if ($CanUseSRS && $EnableSRS && $this->{isRelay} && !$this->{isbounce} && !(matchSL($this->{mailfrom},'noSRS'))) {
     # rewrite sender address when relaying through Relay Host
     ($tf)=();
-    $srs=new Mail::SRS(
-     Secret=>$SRSSecretKey,
-     MaxAge=>$SRSTimestampMaxAge,
-     HashLength=>$SRSHashLength,
-     AlwaysRewrite=>1
-    );
+    $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                       MaxAge=>$SRSTimestampMaxAge,
+                       HashLength=>$SRSHashLength,
+                       AlwaysRewrite=>1);
     if (!eval{$tf=$srs->reverse($this->{mailfrom})} &&
          eval{$tf=$srs->forward($this->{mailfrom},$SRSAliasDomain)}) {
      $l=~s/\Q$this->{mailfrom}\E/$tf/;
@@ -1572,12 +1566,10 @@ sub getLine {
      unless (matchSL($ec,'noSRS')) {
       # validate incoming bounces
       ($tt,$tt2)=();
-      $srs=new Mail::SRS(
-       Secret=>$SRSSecretKey,
-       MaxAge=>$SRSTimestampMaxAge,
-       HashLength=>$SRSHashLength,
-       AlwaysRewrite=>1
-      );
+      $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                         MaxAge=>$SRSTimestampMaxAge,
+                         HashLength=>$SRSHashLength,
+                         AlwaysRewrite=>1);
       if ($ec=~/^SRS0[=+-].*/i) {
        if (eval{$tt=$srs->reverse($ec)}) {
         $l=~s/\Q$ec\E/$tt/;
@@ -1664,15 +1656,45 @@ sub getLine {
    $this->{addressedToSpamBucket}=1 if $rcptlocal && matchSL("$u$h",'spamaddresses');
    checkSpamLover($fh,"$u$h",$rcptlocal);
    return if checkEmailInterface($fh,$u,$rcptlocal)<0;
+
+##   # normal (pre-data) checks
+##   unless ($this->{noprocessing} & 3 || $this->{mWLDRE}) {
+##    return if $RateLimitPosition==4 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,1)<0;
+##    return if $HeloPosition==3 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+##    return if $SenderPosition==2 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh,$this->{allLoveMfSpam})<0;
+##    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==2 && ($SPFWL || !$this->{mailfromonwl});
+##    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==4 && ($RBLWL || !$this->{mailfromonwl}); L2:
+##    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
+##   }
+
    # normal (pre-data) checks
-   unless ($this->{noprocessing} & 3 || $this->{mWLDRE}) {
-    return if $RateLimitPosition==4 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,1)<0;
-    return if $HeloPosition==3 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $SenderPosition==2 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==2 && ($SPFWL || !$this->{mailfromonwl});
-    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==4 && ($RBLWL || !$this->{mailfromonwl}); L2:
-    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
+   $doRateLimit=$RateLimitPosition==4 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 3)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doHelo=$HeloPosition==3 && (($HeloExtra & 1) || !($this->{noprocessing} & 3)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSender=$SenderPosition==2 && (($SenderExtra & 1) || !($this->{noprocessing} & 3)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSPF=$SPFPosition==2 && (($SPFExtra & 1) || !($this->{noprocessing} & 3)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doRBL=$RBLPosition==4 && (($RBLExtra & 1) || !($this->{noprocessing} & 3)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
+   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
+   checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 4);
+   return call('L4',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L4:
+   return if checkNonLate($fh,1)<0; ## ,1 fixme ??
+   if ($doRateLimit && !($RateLimitExtra & 4) ||
+       $doHelo && !($HeloExtra & 4) ||
+       $doSender && !($SenderExtra & 4) ||
+       $doSPF && !($SPFExtra & 4) ||
+       $doRBL && !($RBLExtra & 4)) {
+    return call('L5',checkRWL($fh)); L5:
+    unless ($this->{rwlok}) {
+     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
+     return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+     return if $doSender && !($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
+     checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && !($SPFExtra & 4);
+     return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L6:
+     return if checkNonLate($fh,1)<0; ## ,1 fixme ??
+    }
    }
+
    $this->{rcptValidated}=0;
    if ($this->{addressedToSpamBucket}) {
     # accept SpamBucket addresses in every case
@@ -1784,10 +1806,13 @@ sub preHeader {
    return;
   }
   $this->{indata}=1;
+
   # don't check, only log RateLimited connection addressed to RateLimit Spamlovers
   unless ($this->{noprocessing} || $this->{mWLDRE}) {
    checkRateLimitBlock($fh,1) if $RateLimitWL || !$this->{mailfromonwl};
   };
+
+
   # prepare ClamAV STREAM connection
   return call('L1',prepareClamAV($fh)); L1:
   if ($this->{noprocessing}) {
@@ -1908,13 +1933,34 @@ sub wlHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return if $HeloWL && checkHelo($fh,$this->{allLoveHlSpam})<0;
-  return if $SenderWL && checkSender($fh,$this->{allLoveMfSpam})<0;
-  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFWL;
-  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLWL; L1:
-  checkHeader($fh) if $MsgVerifyWL;
+
+##  return if $HeloWL && checkHelo($fh,$this->{allLoveHlSpam})<0;
+##  return if $SenderWL && checkSender($fh,$this->{allLoveMfSpam})<0;
+##  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFWL;
+##  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLWL; L1:
+##  checkHeader($fh) if $MsgVerifyWL;
+
+##  $doHelo=$HeloPosition==4 && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok});
+
+  return if $HeloPosition==4 && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
+  return if $SenderPosition==3 && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
+  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && ($SPFExtra & 6)==6;
+  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && ($RBLExtra & 6)==6; L1:
+  checkHeader($fh) if ($MsgVerifyExtra & 6)==6;
+  if ($HeloPosition==4 && (($HeloExtra & 6)==2 || ($HeloExtra & 6)==4) ||
+      $SenderPosition==3 && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
+      $SPFPosition==3 && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
+      $RBLPosition==5 && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
+   return call('L2',checkRWL($fh)); L2:
+   return if $HeloPosition==4 && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   return if $SenderPosition==3 && (($SenderExtra & 2) && !$this->{rwlok} || ($SenderExtra & 4) && $this->{rwlok}) && checkSender($fh,$this->{allLoveMfSpam})<0;
+   checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && (($SPFExtra & 2) && !$this->{rwlok} || ($SPFExtra & 4) && $this->{rwlok});
+   return call('L3',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && (($RBLExtra & 2) && !$this->{rwlok} || ($RBLExtra & 4) && $this->{rwlok}); L3:
+   checkHeader($fh) if (($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok});
+  }
+
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L2',whiteBodyDone($fh,1)); L2:
+   return call('L4',whiteBodyDone($fh,1)); L4:
   } else {
    $this->{getline}=\&whiteBody;
   }
@@ -1935,7 +1981,7 @@ sub getHeaderExec {
   return if checkSender($fh,$this->{allLoveMfSpam})<0;
   checkSpamBucket($fh);
   checkSRSBounce($fh);
-  checkSPF($fh,$this->{allLoveSPFSpam});  
+  checkSPF($fh,$this->{allLoveSPFSpam});
   return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})); L1:
   checkHeader($fh);
   if ($l=~/^\.(?:\015\012)?$/) {   
@@ -2208,11 +2254,11 @@ sub doneTmpBody {
  my ($fh,$param)=@_;
  my $this=$Con{$fh};
  my $sfh=$this->{sfh};
- if ($param & 1 && $SMTPSessions{$sfh}->{tmpfh}) {
+ if (($param & 1) && $SMTPSessions{$sfh}->{tmpfh}) {
   close $SMTPSessions{$sfh}->{tmpfh};
   delete $SMTPSessions{$sfh}->{tmpfh};
  }
- if ($param & 2 && $SMTPSessions{$sfh}->{tmpfn}) {
+ if (($param & 2) && $SMTPSessions{$sfh}->{tmpfn}) {
   unlink("$base/$SMTPSessions{$sfh}->{tmpfn}");
   delete $SMTPSessions{$sfh}->{tmpfn};
  }
@@ -2261,12 +2307,10 @@ sub pass {
    if ($CanUseSRS && $EnableSRS && $SRSRewriteToHeader && !$this->{isRelay} && $this->{isbounce}) {
     if (($e)=$header=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
      ($tt,$tt2)=();
-     $srs=new Mail::SRS(
-      Secret=>$SRSSecretKey,
-      MaxAge=>$SRSTimestampMaxAge,
-      HashLength=>$SRSHashLength,
-      AlwaysRewrite=>1
-     );
+     $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                        MaxAge=>$SRSTimestampMaxAge,
+                        HashLength=>$SRSHashLength,
+                        AlwaysRewrite=>1);
      if ($e=~/<?(SRS0[=+-][^\015\012>]*).*/i) {
       if (eval{$tt=$srs->reverse($1)}) {
        $e=~s/\Q$1\E/$tt/;
@@ -2632,7 +2676,7 @@ sub checkLDAP {
 sub checkNeeded {
  my ($fh,$coll,$testmode,$spamlover)=@_;
  my $this=$Con{$fh};
- return $coll>$this->{coll} || !($this->{spamfound} & 4 || $testmode || $spamlover);
+ return $coll>$this->{coll} || !(($this->{spamfound} & 4) || $testmode || $spamlover);
 }
 
 sub checkNonLate {
@@ -2921,15 +2965,15 @@ sub checkHelo {
 sub checkSender {
  my ($fh,$spamlover)=@_;
  my $this=$Con{$fh};
+ return 1 if $this->{relayok} || $this->{mISPRE};
+ return 1 unless $ValidateSender;
+ return 1 unless checkNeeded($fh,$mfFailColl,$mfTestMode,$spamlover);
  my $result=1;
  if (@{$this->{Sendercache}}) {
   ($result)=@{$this->{Sendercache}};
  } else {
   my $skip;
-  if ($this->{relayok} || $this->{mISPRE} || !$ValidateSender ||
-      !checkNeeded($fh,$mfFailColl,$mfTestMode,$spamlover)) {
-   $skip=1;
-  } elsif (matchSL($this->{mailfrom},'noSenderCheck')) {
+  if (matchSL($this->{mailfrom},'noSenderCheck')) {
    mlogCond($fh,"sender check skipped (noSenderCheck): $this->{mailfrom}",$SenderValLog);
    $skip=1;
   }
@@ -3563,12 +3607,12 @@ sub doneClamAV {
  my ($fh,$param)=@_;
  my $this=$Con{$fh};
  my $sfh=$this->{sfh};
- if ($param & 1 && $SMTPSessions{$sfh}->{clamdfh}) {
+ if (($param & 1) && $SMTPSessions{$sfh}->{clamdfh}) {
   mlogCond($fh,'closing command connection to ClamAV',$AvLog);
   close $SMTPSessions{$sfh}->{clamdfh};
   delete $SMTPSessions{$sfh}->{clamdfh};
  }
- if ($param & 2 && $SMTPSessions{$sfh}->{clamdstfh}) {
+ if (($param & 2) && $SMTPSessions{$sfh}->{clamdstfh}) {
   mlogCond($fh,'closing stream connection to ClamAV',$AvLog);
   close $SMTPSessions{$sfh}->{clamdstfh};
   delete $SMTPSessions{$sfh}->{clamdstfh};
@@ -4023,7 +4067,7 @@ sub forwardSpam {
  my $coll=$Con{$fh}->{coll};
  return unless $coll==2 || $coll==4 || $coll==6 || $coll==8 || $coll==10 || $coll==12;
  my $sf=$Con{$fh}->{spamfound};
- my $to=$sf & 4 ? $ccBlocked : $sf ? $ccSpam : $ccHam;
+ my $to=($sf & 4) ? $ccBlocked : $sf ? $ccSpam : $ccHam;
  return unless $to;
  if ($ccFilter && !matchSL($Con{$fh}->{mailfrom},'ccFilter')) {
   my $c;
@@ -4052,7 +4096,7 @@ sub forwardSpam {
  # first remove the spamSubject from Subject: if it was added by us
  $this->{header}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $sf && $spamSubject;
  # add ccBlockedSubject, ccSpamSubject or ccHamSubject to Subject:
- my $sub=$sf & 4 ? $ccBlockedSubject : $sf ? $ccSpamSubject : $ccHamSubject;
+ my $sub=($sf & 4) ? $ccBlockedSubject : $sf ? $ccSpamSubject : $ccHamSubject;
  $sub=~s/TAG/$SubjectTags{$Con{$fh}->{tag}}/g;
  if ($sub && $this->{header}!~/^Subject$HeaderSepRe\Q$sub\E /im) {
   $this->{header}=~s/^Subject$HeaderSepRe/Subject: $sub /gimo; # rewrite all Subject: headers
@@ -5853,12 +5897,10 @@ sub corpusDetails {
    $a=$1; $a=~tr/\002\003//; # sanitize
    if ($CanUseSRS && $EnableSRS) {
     my ($tt,$tt2);
-    my $srs=new Mail::SRS(
-     Secret=>$SRSSecretKey,
-     MaxAge=>$SRSTimestampMaxAge,
-     HashLength=>$SRSHashLength,
-     AlwaysRewrite=>1
-    );
+    my $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                          MaxAge=>$SRSTimestampMaxAge,
+                          HashLength=>$SRSHashLength,
+                          AlwaysRewrite=>1);
     my ($ac)=$a=~/^<?([^\015\012>]*).*/;
     if ($ac=~/SRS0[=+-].*/i) {
      if (eval{$tt=$srs->reverse($ac)}) {
