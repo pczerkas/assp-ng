@@ -295,6 +295,51 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
   # SenderWL is not used in this version
   delete $Config{SenderWL};
  }
+ if (exists $Config{SPFWL}) {
+  if ($Config{SPFWL}) {
+   $Config{SPFExtra}|=2;
+  } else {
+   $Config{SPFExtra}&=255-2;
+  }
+  # SPFWL is not used in this version
+  delete $Config{SPFWL};
+ }
+ if (exists $Config{RBLWL}) {
+  if ($Config{RBLWL}) {
+   $Config{RBLExtra}|=2;
+  } else {
+   $Config{RBLExtra}&=255-2;
+  }
+  # RBLWL is not used in this version
+  delete $Config{RBLWL};
+ }
+ if (exists $Config{MsgVerifyWL}) {
+  if ($Config{MsgVerifyWL}) {
+   $Config{MsgVerifyExtra}|=2;
+  } else {
+   $Config{MsgVerifyExtra}&=255-2;
+  }
+  # MsgVerifyWL is not used in this version
+  delete $Config{MsgVerifyWL};
+ }
+ if (exists $Config{URIBLWL}) {
+  if ($Config{URIBLWL}) {
+   $Config{URIBLExtra}|=2;
+  } else {
+   $Config{URIBLExtra}&=255-2;
+  }
+  # URIBLWL is not used in this version
+  delete $Config{URIBLWL};
+ }
+ if (exists $Config{RateLimitWL}) {
+  if ($Config{RateLimitWL}) {
+   $Config{RateLimitExtra}|=2;
+  } else {
+   $Config{RateLimitExtra}&=255-2;
+  }
+  # RateLimitWL is not used in this version
+  delete $Config{RateLimitWL};
+ }
 
 
  # fix error codes
