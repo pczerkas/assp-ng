@@ -4837,7 +4837,7 @@ sub resetStats {
   $Stats{'dwbytes'.$t}=0;
   $Stats{'dwtime'.$t}=0;
  }
- foreach my $p (@StatsProvItems) {
+ foreach my $p ('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist) {
   $Stats{"providerQueries$p"}=0;
   $Stats{"providerReplies$p"}=0;
   $Stats{"providerHits$p"}=0;
