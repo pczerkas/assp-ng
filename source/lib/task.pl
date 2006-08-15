@@ -5,7 +5,7 @@
 
 # This module implements simple cooperative multitasking
 # kernel based on semi-coroutines emulated in pure Perl.
-# (c) 2006 Przemyslaw Czerkas <przemekc@poczta.onet.pl>
+# (c) 2006 Przemek Czerkas <przemekc@poczta.onet.pl>
 
 $version='1.2.0';
 $modversion=' beta 0';

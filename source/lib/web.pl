@@ -38,15 +38,15 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
        'ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
        'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','SenderBomb','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
-       'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','noSPF','SPFError',
+       'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','SPFExtra','noSPF','SPFError',
        'ValidateRWL','RWLPosition','AddRWLHeader','RWLServiceProvider','RWLmaxreplies','RWLminhits','RWLmaxtime','noRWL',
-       'RBLPosition','RBLServiceProvider','noRBL','RBLError','noSRS','SRSRewriteToHeader','SRSBounceError',
-       'EnableMsgVerify','MsgVerifyWL','MsgVerifyHeaders','MsgVerifyLineLength','noMsgVerify','noBombScript',
-       'noAttachment','ValidateURIBL','URIBLWL','AddURIBLHeader','URIBLServiceProvider','URIBLCCTLDS',
+       'RBLPosition','RBLExtra','RBLServiceProvider','noRBL','RBLError','noSRS','SRSRewriteToHeader','SRSBounceError',
+       'EnableMsgVerify','MsgVerifyExtra','MsgVerifyHeaders','MsgVerifyLineLength','noMsgVerify','noBombScript',
+       'noAttachment','ValidateURIBL','URIBLExtra','AddURIBLHeader','URIBLServiceProvider','URIBLCCTLDS',
        'URIBLmaxuris','URIBLmaxdomains','URIBLNoObfuscated','URIBLmaxreplies','URIBLmaxhits','URIBLmaxtime',
        'URIBLsocktime','URIBLwhitelist','noURIBL','URIBLPolicyError','URIBLError','AvUseClamAV','AvDestination','Avmaxtime',
        'AddSpamAnalysisHeader','mfTestMode','malformedTestMode','uriblTestMode','ccHam','ccSpam','ccBlocked','ccHamSubject',
-       'ccSpamSubject','ccBlockedSubject','ccFilter','EnableRateLimit','RateLimitPosition','RateLimitWL',
+       'ccSpamSubject','ccBlockedSubject','ccFilter','EnableRateLimit','RateLimitPosition','RateLimitExtra',
        'RateLimitUseNetblocks','RateLimitClient','RLIBTclientHeloValidated','RLIBTclientHeloUnchecked',
        'RLIBTclientHeloForged','RLIBTclientHeloBlacklisted','RLIBTclientHeloMismatch','RLIBTclientHeloSpam','RateLimitSender',
        'RLIBTsenderValidatedLocal','RLIBTsenderUncheckedLocal','RLIBTsenderWhitelisted','RLIBTsenderValidatedRemote',
@@ -1754,7 +1754,6 @@ EOT
  &{$sref->[0]};
  return $sref->[1];
 }
-
 
 sub webCorpusItem {
  my ($coll,$fn,$det,$gpc,$good,$bad)=@_;
