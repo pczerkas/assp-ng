@@ -1042,7 +1042,7 @@ sub addTrafStats {
     $Con{$sfh}->{pwtimeClientSMTP}+=$wtime;
     if ($rtime) {
      $sess->{lbannerClientSMTP}=$rtime if $sess->{lbannerClientSMTP} eq 0;
-     $sess->{lminClientSMTP}=$rtime if $rtime<$sess->{lminClientSMTP};
+     $sess->{lminClientSMTP}=$rtime if $rtime<$sess->{lminClientSMTP} || !$sess->{lminClientSMTP};
      $sess->{lmaxClientSMTP}=$rtime if $rtime>$sess->{lmaxClientSMTP};
     }
     $Stats{prbytesRelaySMTP}+=$rbytes;
@@ -1070,7 +1070,7 @@ sub addTrafStats {
     $Con{$sfh}->{pwtimeClientSMTP}+=$wtime;
     if ($rtime) {
      $sess->{lbannerClientSMTP}=$rtime if $sess->{lbannerClientSMTP} eq 0;
-     $sess->{lminClientSMTP}=$rtime if $rtime<$sess->{lminClientSMTP};
+     $sess->{lminClientSMTP}=$rtime if $rtime<$sess->{lminClientSMTP} || !$sess->{lminClientSMTP};
      $sess->{lmaxClientSMTP}=$rtime if $rtime>$sess->{lmaxClientSMTP};
     }
     $Stats{prbytesClientSMTP}+=$rbytes;
@@ -1099,7 +1099,7 @@ sub addTrafStats {
     $Con{$sfh}->{prtimeServerSMTP}+=$rtime;
     $Con{$sfh}->{pwtimeServerSMTP}+=$wtime;
     if ($wtime) {
-     $sess->{lminServerSMTP}=$wtime if $wtime<$sess->{lminServerSMTP};
+     $sess->{lminServerSMTP}=$wtime if $wtime<$sess->{lminServerSMTP} || !$sess->{lminServerSMTP};
      $sess->{lmaxServerSMTP}=$wtime if $wtime>$sess->{lmaxServerSMTP};
     }
     $Stats{prbytesRelaySMTP}+=$rbytes;
@@ -1126,7 +1126,7 @@ sub addTrafStats {
     $Con{$sfh}->{prtimeServerSMTP}+=$rtime;
     $Con{$sfh}->{pwtimeServerSMTP}+=$wtime;
     if ($wtime) {
-     $sess->{lminServerSMTP}=$wtime if $wtime<$sess->{lminServerSMTP};
+     $sess->{lminServerSMTP}=$wtime if $wtime<$sess->{lminServerSMTP} || !$sess->{lminServerSMTP};
      $sess->{lmaxServerSMTP}=$wtime if $wtime>$sess->{lmaxServerSMTP};
     }
     $Stats{prbytesServerSMTP}+=$rbytes;
@@ -1184,8 +1184,8 @@ sub doneStats {
    $Stats{dwbytesServerAborted}+=$Con{$sfh}->{dwbytesServerSMTP};
   }
   $Stats{'lbanner'.$stats}+=$sess->{lbannerClientSMTP};
-  $Stats{'lmin'.$stats}+=$sess->{lminClientSMTP} if $sess->{lminClientSMTP}<1e6;
-  $Stats{'lmax'.$stats}+=$sess->{lmaxClientSMTP} if $sess->{lmaxClientSMTP}>0;
+  $Stats{'lmin'.$stats}+=$sess->{lminClientSMTP};
+  $Stats{'lmax'.$stats}+=$sess->{lmaxClientSMTP};
  }
  # add counters to session
  $sess->{drbytesClientSMTP}+=$Con{$sfh}->{drbytesClientSMTP};
@@ -1251,9 +1251,9 @@ sub addSession {
  $sess->{prtimeServerSMTP}=0;
  $sess->{pwtimeServerSMTP}=0;
  $sess->{lbannerClientSMTP}=0;  # client banner latency
- $sess->{lminClientSMTP}=1e6;   # client latency min
+ $sess->{lminClientSMTP}=0;     # client latency min
  $sess->{lmaxClientSMTP}=0;     # client latency max
- $sess->{lminServerSMTP}=1e6;   # server latency min
+ $sess->{lminServerSMTP}=0;     # server latency min
  $sess->{lmaxServerSMTP}=0;     # server latency max
  $SMTPipSessions{ipNetwork($ip,24)}++;
 }
@@ -1283,7 +1283,7 @@ sub doneSession {
    $msg.=' ('.formatDataSize($sess->{prtimeClientSMTP}==0 ? 0 : $sess->{prbytesClientSMTP}/$sess->{prtimeClientSMTP},1).'ps / '.
               formatDataSize($sess->{drtimeClientSMTP}==0 ? 0 : $sess->{drbytesClientSMTP}/$sess->{drtimeClientSMTP},1).'ps)' if $DetailedStats;
   }
-  if ($sess->{lminClientSMTP}<1e6 && $sess->{lmaxClientSMTP}>0) {
+  if ($sess->{lminClientSMTP}>0 && $sess->{lmaxClientSMTP}>0) {
    $msg.=' with '.formatTimeInterval($sess->{lbannerClientSMTP},1).' ttfb';
    $msg.=' / '.formatTimeInterval(($sess->{lminClientSMTP}+$sess->{lmaxClientSMTP})/2,1).' avg ('.
                formatTimeInterval($sess->{lminClientSMTP},1).' - '.
@@ -1301,7 +1301,7 @@ sub doneSession {
    $msg.=' ('.formatDataSize($sess->{pwtimeServerSMTP}==0 ? 0 : $sess->{pwbytesServerSMTP}/$sess->{pwtimeServerSMTP},1).'ps / '.
               formatDataSize($sess->{dwtimeServerSMTP}==0 ? 0 : $sess->{dwbytesServerSMTP}/$sess->{dwtimeServerSMTP},1).'ps)' if $DetailedStats;
   }
-  if ($sess->{lminServerSMTP}<1e6 && $sess->{lmaxServerSMTP}>0) {
+  if ($sess->{lminServerSMTP}>0 && $sess->{lmaxServerSMTP}>0) {
    $msg.=' with '.formatTimeInterval(($sess->{lminServerSMTP}+$sess->{lmaxServerSMTP})/2,1).' avg';
    $msg.=' ('.formatTimeInterval($sess->{lminServerSMTP},1).' - '.
               formatTimeInterval($sess->{lmaxServerSMTP},1).')' if $DetailedStats;
@@ -2546,7 +2546,7 @@ sub reply {
     delete $this->{noop};
    }
 
-   return call('L4',checkRWL($client)); L4:
+   return call('L4',checkRWL($client)); L4: ## testing
 
    # early (on-connect) checks
    return if $RateLimitPosition==1 && checkRateLimitBlock($client,0)<0;
@@ -3177,8 +3177,8 @@ sub checkRWL {
     if ($AvailHiRes) {
      $time=Time::HiRes::time()-$time;
      $Stats{providerTimeRWL}+=$time;
-     $Stats{providerMaxTimeRWL}=$time if $time>$Stats{providerMaxTimeRWL};
      $Stats{providerMinTimeRWL}=$time if $time<$Stats{providerMinTimeRWL} || !$Stats{providerMinTimeRWL};
+     $Stats{providerMaxTimeRWL}=$time if $time>$Stats{providerMaxTimeRWL};
     }
     @listed_by=$rwl->listed_by();
     $rwls_returned=$#listed_by+1;
@@ -3241,8 +3241,8 @@ sub checkRBL {
     if ($AvailHiRes) {
      $time=Time::HiRes::time()-$time;
      $Stats{providerTimeRBL}+=$time;
-     $Stats{providerMaxTimeRBL}=$time if $time>$Stats{providerMaxTimeRBL};
      $Stats{providerMinTimeRBL}=$time if $time<$Stats{providerMinTimeRBL} || !$Stats{providerMinTimeRBL};
+     $Stats{providerMaxTimeRBL}=$time if $time>$Stats{providerMaxTimeRBL};
     }
     @listed_by=$rbl->listed_by();
     $rbls_returned=$#listed_by+1;
@@ -3755,8 +3755,8 @@ sub checkURIBL {
    if ($AvailHiRes) {
     $time=Time::HiRes::time()-$time;
     $Stats{providerTimeURIBL}+=$time;
-    $Stats{providerMaxTimeURIBL}=$time if $time>$Stats{providerMaxTimeURIBL};
     $Stats{providerMinTimeURIBL}=$time if $time<$Stats{providerMinTimeURIBL} || !$Stats{providerMinTimeURIBL};
+    $Stats{providerMaxTimeURIBL}=$time if $time>$Stats{providerMaxTimeURIBL};
    }
    @listed_by=$uribl->listed_by();
    $lcnt=$#listed_by+1;
@@ -4885,6 +4885,9 @@ sub resetStats {
   $Stats{"providerQueries$p"}=0;
   $Stats{"providerReplies$p"}=0;
   $Stats{"providerHits$p"}=0;
+  $Stats{"providerTime$p"}=0;
+  $Stats{"providerMinTime$p"}=0;
+  $Stats{"providerMaxTime$p"}=0;
  }
  $Stats{taskCreatedM}-=$Stats{taskFinishedM}; # MAIN
  $Stats{taskCreatedS}-=$Stats{taskFinishedS}; # SMTP
@@ -6245,8 +6248,8 @@ sub lookup {
      if ($main::AvailHiRes) {
       $time=Time::HiRes::time()-$times{$domain};
       $main::Stats{"providerTime$domain"}+=$time;
-      $main::Stats{"providerMaxTime$domain"}=$time if $time>$main::Stats{"providerMaxTime$domain"};
       $main::Stats{"providerMinTime$domain"}=$time if $time<$main::Stats{"providerMinTime$domain"} || !$main::Stats{"providerMinTime$domain"};
+      $main::Stats{"providerMaxTime$domain"}=$time if $time>$main::Stats{"providerMaxTime$domain"};
      }
      last if $hits>=$self->{max_hits} || $replies>=$self->{max_replies};
     }
