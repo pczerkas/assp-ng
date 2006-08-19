@@ -1477,16 +1477,17 @@ sub getLine {
    $this->{mNBSRE}=matchSL($this->{mailfrom},'noBombScript');
    $this->{mWLDRE}=$this->{mailfrom}=~$WLDRE;
    $this->{isbounce}=$this->{mailfrom}=~$BSRE;
-   # update some Sender Stats
-   if ($this->{noprocessing} & 1) {
-    mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-    return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-    $Stats{senderUnprocessed}++;
-   } elsif ($this->{mWLDRE} || !$SenderWL && $this->{mailfromonwl}) {
-    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-    $Stats{senderWhitelisted}++;
-   }
+
+##   # update some Sender Stats
+##   if ($this->{noprocessing} & 1) {
+##    mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+##    return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+##    $Stats{senderUnprocessed}++;
+##   } elsif ($this->{mWLDRE} || !$SenderWL && $this->{mailfromonwl}) {
+##    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+##    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+##    $Stats{senderWhitelisted}++;
+##   }
 
 ##   # early (pre-rcpt) checks
 ##   unless ($this->{noprocessing} & 1 || $this->{mWLDRE}) {
@@ -1498,7 +1499,19 @@ sub getLine {
 ##    return if checkNonLate($fh,0)<0;
 ##   }
 
-   # early (pre-rcpt) checks
+   # update some Sender Stats
+   if ($SenderPosition==1 && ($SenderExtra & 4)) {
+    if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
+     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+     $Stats{senderUnprocessed}++;
+    } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE})) {
+     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+     $Stats{senderWhitelisted}++;
+    }
+   }
+   # early (pre-rcpt) checks, optimize checkRWL() position
    $doRateLimit=$RateLimitPosition==3 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 1)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
    $doHelo=$HeloPosition==2 && (($HeloExtra & 1) || !($this->{noprocessing} & 1)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
    $doSender=$SenderPosition==1 && (($SenderExtra & 1) || !($this->{noprocessing} & 1)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
@@ -1516,6 +1529,18 @@ sub getLine {
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
     return call('L2',checkRWL($fh)); L2:
+    # update some Sender Stats
+    if ($SenderPosition==1 && !($SenderExtra & 4)) {
+     if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
+      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+      $Stats{senderUnprocessed}++;
+     } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE}) || $this->{rwlok}) {
+      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+      $Stats{senderWhitelisted}++;
+     }
+    }
     unless ($this->{rwlok}) {
      return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
@@ -1525,9 +1550,8 @@ sub getLine {
      return if checkNonLate($fh,0)<0;
     }
    }
-
+   # rewrite sender address when relaying through Relay Host
    if ($CanUseSRS && $EnableSRS && $this->{isRelay} && !$this->{isbounce} && !(matchSL($this->{mailfrom},'noSRS'))) {
-    # rewrite sender address when relaying through Relay Host
     ($tf)=();
     $srs=new Mail::SRS(Secret=>$SRSSecretKey,
                        MaxAge=>$SRSTimestampMaxAge,
@@ -1667,6 +1691,18 @@ sub getLine {
 ##    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
 ##   }
 
+   # update some Sender Stats
+   if ($SenderPosition==2 && ($SenderExtra & 4)) {
+    if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
+     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+     $Stats{senderUnprocessed}++;
+    } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE})) {
+     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+     $Stats{senderWhitelisted}++;
+    }
+   }
    # normal (pre-data) checks
    $doRateLimit=$RateLimitPosition==4 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 3)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
    $doHelo=$HeloPosition==3 && (($HeloExtra & 1) || !($this->{noprocessing} & 3)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
@@ -1685,6 +1721,18 @@ sub getLine {
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
     return call('L5',checkRWL($fh)); L5:
+    # update some Sender Stats
+    if ($SenderPosition==2 && !($SenderExtra & 4)) {
+     if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
+      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+      $Stats{senderUnprocessed}++;
+     } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE}) || $this->{rwlok}) {
+      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+      $Stats{senderWhitelisted}++;
+     }
+    }
     unless ($this->{rwlok}) {
      return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
@@ -1793,7 +1841,7 @@ sub getLine {
 
 sub preHeader {
  my ($fh,$l);
- my $this;
+ my ($this,$doRateLimit);
  my $sref=$Tasks{$CurTaskID}->{preHeader}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -1807,10 +1855,21 @@ sub preHeader {
   }
   $this->{indata}=1;
 
+##  # don't check, only log RateLimited connection addressed to RateLimit Spamlovers
+##  unless ($this->{noprocessing} || $this->{mWLDRE}) {
+##   checkRateLimitBlock($fh,1) if $RateLimitWL || !$this->{mailfromonwl};
+##  };
+
   # don't check, only log RateLimited connection addressed to RateLimit Spamlovers
-  unless ($this->{noprocessing} || $this->{mWLDRE}) {
-   checkRateLimitBlock($fh,1) if $RateLimitWL || !$this->{mailfromonwl};
-  };
+  $doRateLimit=(($RateLimitExtra & 1) || !($this->{noprocessing})) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+  checkRateLimitBlock($fh,1) if $doRateLimit && ($RateLimitExtra & 4);
+  if ($doRateLimit && !($RateLimitExtra & 4)) {
+   return call('L5',checkRWL($fh)); L5:
+   unless ($this->{rwlok}) {
+    checkRateLimitBlock($fh,1) if $doRateLimit && !($RateLimitExtra & 4);
+   }
+  }
+
 
 
   # prepare ClamAV STREAM connection
