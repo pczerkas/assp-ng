@@ -1463,8 +1463,18 @@ sub getLine {
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
    headerWrap($this->{rcvd}); # wrap long lines
 
-   # early (pre-mailfrom) checks
-   return if $HeloPosition==1 && checkHelo($fh)<0;
+##   # early (pre-mailfrom) checks
+##   return if $HeloPosition==1 && checkHelo($fh)<0;
+##   return if checkNonLate($fh,0)<0;
+
+   # early (pre-mailfrom) checks, optimize checkRWL() position
+   return if $HeloPosition==1 && ($HeloExtra & 4) && checkHelo($fh)<0;
+   if ($HeloPosition==1 && !($HeloExtra & 4)) {
+    return call('L1',checkRWL($fh)); L1:
+    unless ($this->{rwlok}) {
+     return if $HeloPosition==1 && !($HeloExtra & 4) && checkHelo($fh)<0;
+    }
+   }
    return if checkNonLate($fh,0)<0;
 
    # for testing
@@ -1523,13 +1533,13 @@ sub getLine {
    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
    return if $doSender && ($SenderExtra & 4) && checkSender($fh)<0;
    checkSPF($fh) if $doSPF && ($SPFExtra & 4);
-   return call('L1',checkRBL($fh)) if $doRBL && ($RBLExtra & 4); L1:
+   return call('L2',checkRBL($fh)) if $doRBL && ($RBLExtra & 4); L2:
    if ($doRateLimit && !($RateLimitExtra & 4) ||
        $doHelo && !($HeloExtra & 4) ||
        $doSender && !($SenderExtra & 4) ||
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L2',checkRWL($fh)); L2:
+    return call('L3',checkRWL($fh)); L3:
     # update some Sender Stats
     if ($SenderPosition==1 && !($SenderExtra & 4)) {
      if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
@@ -1547,7 +1557,7 @@ sub getLine {
      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
      return if $doSender && !($SenderExtra & 4) && checkSender($fh)<0;
      checkSPF($fh) if $doSPF && !($SPFExtra & 4);
-     return call('L3',checkRBL($fh)) if $doRBL && !($RBLExtra & 4); L3:
+     return call('L4',checkRBL($fh)) if $doRBL && !($RBLExtra & 4); L4:
     }
    }
    return if checkNonLate($fh,0)<0;
@@ -1714,13 +1724,13 @@ sub getLine {
    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 4);
-   return call('L4',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L4:
+   return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L5:
    if ($doRateLimit && !($RateLimitExtra & 4) ||
        $doHelo && !($HeloExtra & 4) ||
        $doSender && !($SenderExtra & 4) ||
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L5',checkRWL($fh)); L5:
+    return call('L6',checkRWL($fh)); L6:
     # update some Sender Stats
     if ($SenderPosition==2 && !($SenderExtra & 4)) {
      if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
@@ -1738,7 +1748,7 @@ sub getLine {
      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
      return if $doSender && !($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
      checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && !($SPFExtra & 4);
-     return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L6:
+     return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L7:
     }
    }
    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
