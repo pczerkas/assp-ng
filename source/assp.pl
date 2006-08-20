@@ -1870,7 +1870,8 @@ sub preHeader {
 ##   checkRateLimitBlock($fh,1) if $RateLimitWL || !$this->{mailfromonwl};
 ##  };
 
-  # don't check, only log RateLimited connection addressed to RateLimit Spamlovers
+  # don't check, only log RateLimited connection addressed 
+  # to RateLimit Spamlovers, optimize checkRWL() position
   $doRateLimit=(($RateLimitExtra & 1) || !($this->{noprocessing})) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
   checkRateLimitBlock($fh,1) if $doRateLimit && ($RateLimitExtra & 4);
   if ($doRateLimit && !($RateLimitExtra & 4)) {
@@ -1984,9 +1985,21 @@ sub npHeaderExec {
  },sub{&jump;
   $this=$Con{$fh};
 
+  # update some Sender Stats
+  if ($SenderPosition==3 && !($SenderExtra & 1)) {
+   mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+   return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+   $Stats{senderUnprocessed}++;
+  }
+  # late (post-data) checks
+  return if $HeloPosition==4 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+  return if $SenderPosition==3 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && ($SPFExtra & 1);
+  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && ($RBLExtra & 1); L1:
+  checkHeader($fh) if ($MsgVerifyExtra & 1);
 
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L1',npBodyDone($fh,1)); L1:
+   return call('L2',npBodyDone($fh,1)); L2:
   } else {
    $this->{getline}=\&npBody;
   }
@@ -2008,8 +2021,6 @@ sub wlHeaderExec {
 ##  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFWL;
 ##  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLWL; L1:
 ##  checkHeader($fh) if $MsgVerifyWL;
-
-##  $doHelo=$HeloPosition==4 && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok});
 
   # update some Sender Stats
   if ($SenderPosition==3 && !($SenderExtra & 6)) {
@@ -2181,14 +2192,20 @@ sub getBody {
    }
    if ($this->{noprocessing}) {
     checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L2',npBodyDone($fh,$done)); L2:
+    return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
+    return call('L3',npBodyDone($fh,$done)); L3:
    } else {
     checkBomb($fh);
     checkScript($fh);
     checkAttach($fh,'(external)',$BlockExes,$extAttachColl);
-    return call('L3',checkURIBL($fh)); L3:
+    # optimize checkRWL() position
+    return call('L4',checkURIBL($fh)) if $URIBLExtra & 4; L4:
+    unless ($URIBLExtra & 4) {
+     return call('L5',checkRWL($fh)); L5:
+     return call('L6',checkURIBL($fh)) unless $this->{rwlok}; L6:
+    }
     checkSpam($fh);
-    return call('L4',getBodyDone($fh,$done)); L4:
+    return call('L7',getBodyDone($fh,$done)); L7:
    }
   }
  }];
