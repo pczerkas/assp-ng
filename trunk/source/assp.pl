@@ -1462,11 +1462,6 @@ sub getLine {
    $this->{helo}=$1;
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
    headerWrap($this->{rcvd}); # wrap long lines
-
-##   # early (pre-mailfrom) checks
-##   return if $HeloPosition==1 && checkHelo($fh)<0;
-##   return if checkNonLate($fh,0)<0;
-
    # early (pre-mailfrom) checks, optimize checkRWL() position
    return if $HeloPosition==1 && ($HeloExtra & 4) && checkHelo($fh)<0;
    if ($HeloPosition==1 && !($HeloExtra & 4)) {
@@ -1476,7 +1471,6 @@ sub getLine {
     }
    }
    return if checkNonLate($fh,0)<0;
-
    # for testing
    if ($this->{isRelay}) { $l=~s/\Q$this->{helo}\E/$myName/; } else { $l=~s/\Q$this->{helo}\E/$myName\.[$this->{ip}]/; }
   } elsif ($l=~/mail from:\s*<?($EmailAdrRe\@$EmailDomainRe|\s*)>?/io) {
@@ -1489,28 +1483,6 @@ sub getLine {
    $this->{mNBSRE}=matchSL($this->{mailfrom},'noBombScript');
    $this->{mWLDRE}=$this->{mailfrom}=~$WLDRE;
    $this->{isbounce}=$this->{mailfrom}=~$BSRE;
-
-##   # update some Sender Stats
-##   if ($this->{noprocessing} & 1) {
-##    mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-##    return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-##    $Stats{senderUnprocessed}++;
-##   } elsif ($this->{mWLDRE} || !$SenderWL && $this->{mailfromonwl}) {
-##    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-##    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-##    $Stats{senderWhitelisted}++;
-##   }
-
-##   # early (pre-rcpt) checks
-##   unless ($this->{noprocessing} & 1 || $this->{mWLDRE}) {
-##    return if $RateLimitPosition==3 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,0)<0;
-##    return if $HeloPosition==2 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh)<0;
-##    return if $SenderPosition==1 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh)<0;
-##    checkSPF($fh) if $SPFPosition==1 && ($SPFWL || !$this->{mailfromonwl});
-##    return call('L1',checkRBL($fh)) if $RBLPosition==3 && ($RBLWL || !$this->{mailfromonwl}); L1:
-##    return if checkNonLate($fh,0)<0;
-##   }
-
    # update some Sender Stats
    if ($SenderPosition==1 && ($SenderExtra & 4)) {
     if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
@@ -1691,17 +1663,6 @@ sub getLine {
    $this->{addressedToSpamBucket}=1 if $rcptlocal && matchSL("$u$h",'spamaddresses');
    checkSpamLover($fh,"$u$h",$rcptlocal);
    return if checkEmailInterface($fh,$u,$rcptlocal)<0;
-
-##   # normal (pre-data) checks
-##   unless ($this->{noprocessing} & 3 || $this->{mWLDRE}) {
-##    return if $RateLimitPosition==4 && ($RateLimitWL || !$this->{mailfromonwl}) && checkRateLimitBlock($fh,1)<0;
-##    return if $HeloPosition==3 && ($HeloWL || !$this->{mailfromonwl}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-##    return if $SenderPosition==2 && ($SenderWL || !$this->{mailfromonwl}) && checkSender($fh,$this->{allLoveMfSpam})<0;
-##    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==2 && ($SPFWL || !$this->{mailfromonwl});
-##    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==4 && ($RBLWL || !$this->{mailfromonwl}); L2:
-##    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
-##   }
-
    # update some Sender Stats
    if ($SenderPosition==2 && ($SenderExtra & 4)) {
     if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
@@ -1752,7 +1713,6 @@ sub getLine {
     }
    }
    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
-
    $this->{rcptValidated}=0;
    if ($this->{addressedToSpamBucket}) {
     # accept SpamBucket addresses in every case
@@ -1864,12 +1824,6 @@ sub preHeader {
    return;
   }
   $this->{indata}=1;
-
-##  # don't check, only log RateLimited connection addressed to RateLimit Spamlovers
-##  unless ($this->{noprocessing} || $this->{mWLDRE}) {
-##   checkRateLimitBlock($fh,1) if $RateLimitWL || !$this->{mailfromonwl};
-##  };
-
   # don't check, only log RateLimited connection addressed 
   # to RateLimit Spamlovers, optimize checkRWL() position
   $doRateLimit=(($RateLimitExtra & 1) || !($this->{noprocessing})) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
@@ -1880,7 +1834,6 @@ sub preHeader {
     checkRateLimitBlock($fh,1) if $doRateLimit && !($RateLimitExtra & 4);
    }
   }
-
   # prepare ClamAV STREAM connection
   return call('L2',prepareClamAV($fh)); L2:
   if ($this->{noprocessing}) {
@@ -1984,7 +1937,6 @@ sub npHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-
   # update some Sender Stats
   if ($SenderPosition==3 && !($SenderExtra & 1)) {
    mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
@@ -1997,7 +1949,6 @@ sub npHeaderExec {
   checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && ($SPFExtra & 1);
   return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && ($RBLExtra & 1); L1:
   checkHeader($fh) if ($MsgVerifyExtra & 1);
-
   if ($l=~/^\.(?:\015\012)?$/) {
    return call('L2',npBodyDone($fh,1)); L2:
   } else {
@@ -2015,13 +1966,6 @@ sub wlHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-
-##  return if $HeloWL && checkHelo($fh,$this->{allLoveHlSpam})<0;
-##  return if $SenderWL && checkSender($fh,$this->{allLoveMfSpam})<0;
-##  checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFWL;
-##  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLWL; L1:
-##  checkHeader($fh) if $MsgVerifyWL;
-
   # update some Sender Stats
   if ($SenderPosition==3 && !($SenderExtra & 6)) {
    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
@@ -2052,7 +1996,6 @@ sub wlHeaderExec {
    return call('L3',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && (($RBLExtra & 2) && !$this->{rwlok} || ($RBLExtra & 4) && $this->{rwlok}); L3:
    checkHeader($fh) if (($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok});
   }
-
   if ($l=~/^\.(?:\015\012)?$/) {
    return call('L4',whiteBodyDone($fh,1)); L4:
   } else {
@@ -2070,16 +2013,6 @@ sub getHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-
-##  checkBlacklist($fh);
-##  return if checkHelo($fh,$this->{allLoveHlSpam})<0;
-##  return if checkSender($fh,$this->{allLoveMfSpam})<0;
-##  checkSpamBucket($fh);
-##  checkSRSBounce($fh);
-##  checkSPF($fh,$this->{allLoveSPFSpam});
-##  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})); L1:
-##  checkHeader($fh);
-
   # late (post-data) checks, optimize checkRWL() position
   checkBlacklist($fh);
   return if $HeloPosition==4 && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
@@ -2107,7 +2040,6 @@ sub getHeaderExec {
    return call('L3',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==5 && !($RBLExtra & 4) && !$this->{rwlok}; L3:
    checkHeader($fh) if !($MsgVerifyExtra & 4) && !$this->{rwlok};
   }
-
   if ($l=~/^\.(?:\015\012)?$/) {   
    return call('L4',getBodyDone($fh,1)); L4:
   } else {
@@ -2131,7 +2063,8 @@ sub npBody {
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   return call('L2',npBodyDone($fh,$done)); L2:
+   return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
+   return call('L3',npBodyDone($fh,$done)); L3:
   }
  }];
  &{$sref->[0]};
@@ -2160,11 +2093,17 @@ sub whiteBody {
    }
    if ($this->{noprocessing}) {
     checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L2',npBodyDone($fh,$done)); L2:
+    return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
+    return call('L3',npBodyDone($fh,$done)); L3:
    } else {
     checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
-    return call('L3',checkURIBL($fh)) if $URIBLWL; L3:
-    return call('L4',whiteBodyDone($fh,$done)); L4:
+    # optimize checkRWL() position
+    return call('L4',checkURIBL($fh)) if ($URIBLExtra & 6)==6; L4:
+    if (($URIBLExtra & 6)==2 || ($URIBLExtra & 6)==4) {
+     return call('L5',checkRWL($fh)); L5:
+     return call('L6',checkURIBL($fh)) if (($URIBLExtra & 2) && !$this->{rwlok} || ($URIBLExtra & 4) && $this->{rwlok}); L6:
+    }
+    return call('L7',whiteBodyDone($fh,$done)); L7:
    }
   }
  }];
