@@ -1285,11 +1285,11 @@ sub doneSession {
               formatDataSize($sess->{drtimeClientSMTP}==0 ? 0 : $sess->{drbytesClientSMTP}/$sess->{drtimeClientSMTP},1).'ps)' if $DetailedStats;
   }
   if ($sess->{lminClientSMTP}>0 && $sess->{lmaxClientSMTP}>0) {
-   $msg.=' with '.formatTimeInterval($sess->{lbannerClientSMTP},1).' ttfb';
-   $msg.=' / '.formatTimeInterval(($sess->{lminClientSMTP}+$sess->{lmaxClientSMTP})/2,1).' avg ('.
-               formatTimeInterval($sess->{lminClientSMTP},1).' - '.
-               formatTimeInterval($sess->{lmaxClientSMTP},1).')' if $DetailedStats;
-   $msg.=' client protocol latency';
+   $msg.=' with '.formatTimeInterval($sess->{lbannerClientSMTP},1).' ttfb / '.
+                  formatTimeInterval(($sess->{lminClientSMTP}+$sess->{lmaxClientSMTP})/2,1).' avg';
+   $msg.=' ('.formatTimeInterval($sess->{lminClientSMTP},1).' - '.
+              formatTimeInterval($sess->{lmaxClientSMTP},1).')' if $DetailedStats;
+   $msg.=' latency';
   }
  }
  slog($sfh,"($msg)",0,'I');
@@ -1306,7 +1306,7 @@ sub doneSession {
    $msg.=' with '.formatTimeInterval(($sess->{lminServerSMTP}+$sess->{lmaxServerSMTP})/2,1).' avg';
    $msg.=' ('.formatTimeInterval($sess->{lminServerSMTP},1).' - '.
               formatTimeInterval($sess->{lmaxServerSMTP},1).')' if $DetailedStats;
-  $msg.=' server protocol latency';
+  $msg.=' latency';
   }
   slog($sfh,"($msg)",1,'I');
  }
