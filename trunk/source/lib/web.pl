@@ -3229,23 +3229,30 @@ sub webStats {
   $rbytesMeanBlockedSpam2=formatDataSize($tots{msgBlockedSpam2}==0 ? 0 : $tots{rbytesBlockedSpam2}/$tots{msgBlockedSpam2},1);
   $rbytesMeanMsg=formatDataSize($tots{msg}==0 ? 0 : $tots{rbytesMsg}/$tots{msg},1);
   $rbytesMeanMsg2=formatDataSize($tots{msg2}==0 ? 0 : $tots{rbytesMsg2}/$tots{msg2},1);
-  # mean throughput per message class
-  $rtputMeanHam=$AvailHiRes ? formatDataSize($tots{rtimeHam}==0 ? 0 : $tots{rbytesHam}/$tots{rtimeHam},1).'ps' : 'n/a';
-  $rtputMeanHam2=$AvailHiRes ? formatDataSize($tots{rtimeHam2}==0 ? 0 : $tots{rbytesHam2}/$tots{rtimeHam2},1).'ps' : 'n/a';
-  $rtputMeanPassedSpam=$AvailHiRes ? formatDataSize($tots{rtimePassedSpam}==0 ? 0 : $tots{rbytesPassedSpam}/$tots{rtimePassedSpam},1).'ps' : 'n/a';
-  $rtputMeanPassedSpam2=$AvailHiRes ? formatDataSize($tots{rtimePassedSpam2}==0 ? 0 : $tots{rbytesPassedSpam2}/$tots{rtimePassedSpam2},1).'ps' : 'n/a';
-  $rtputMeanBlockedSpam=$AvailHiRes ? formatDataSize($tots{rtimeBlockedSpam}==0 ? 0 : $tots{rbytesBlockedSpam}/$tots{rtimeBlockedSpam},1).'ps' : 'n/a';
-  $rtputMeanBlockedSpam2=$AvailHiRes ? formatDataSize($tots{rtimeBlockedSpam2}==0 ? 0 : $tots{rbytesBlockedSpam2}/$tots{rtimeBlockedSpam2},1).'ps' : 'n/a';
-  $rtputMeanMsg=$AvailHiRes ? formatDataSize($tots{rtimeMsg}==0 ? 0 : $tots{rbytesMsg}/$tots{rtimeMsg},1).'ps' : 'n/a';
-  $rtputMeanMsg2=$AvailHiRes ? formatDataSize($tots{rtimeMsg2}==0 ? 0 : $tots{rbytesMsg2}/$tots{rtimeMsg2},1).'ps' : 'n/a';
-  $pdrtputMeanHam=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeHam}==0 ? 0 : $tots{prbytesHam}/$tots{prtimeHam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeHam}==0 ? 0 : $tots{drbytesHam}/$tots{drtimeHam},1).'ps)' : '';
-  $pdrtputMeanHam2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeHam2}==0 ? 0 : $tots{prbytesHam2}/$tots{prtimeHam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeHam2}==0 ? 0 : $tots{drbytesHam2}/$tots{drtimeHam2},1).'ps)' : '';
-  $pdrtputMeanPassedSpam=$AvailHiRes ? ' ('.formatDataSize($tots{prtimePassedSpam}==0 ? 0 : $tots{prbytesPassedSpam}/$tots{prtimePassedSpam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimePassedSpam}==0 ? 0 : $tots{drbytesPassedSpam}/$tots{drtimePassedSpam},1).'ps)' : '';
-  $pdrtputMeanPassedSpam2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimePassedSpam2}==0 ? 0 : $tots{prbytesPassedSpam2}/$tots{prtimePassedSpam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimePassedSpam2}==0 ? 0 : $tots{drbytesPassedSpam2}/$tots{drtimePassedSpam2},1).'ps)' : '';
-  $pdrtputMeanBlockedSpam=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeBlockedSpam}==0 ? 0 : $tots{prbytesBlockedSpam}/$tots{prtimeBlockedSpam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeBlockedSpam}==0 ? 0 : $tots{drbytesBlockedSpam}/$tots{drtimeBlockedSpam},1).'ps)' : '';
-  $pdrtputMeanBlockedSpam2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeBlockedSpam2}==0 ? 0 : $tots{prbytesBlockedSpam2}/$tots{prtimeBlockedSpam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeBlockedSpam2}==0 ? 0 : $tots{drbytesBlockedSpam2}/$tots{drtimeBlockedSpam2},1).'ps)' : '';
-  $pdrtputMeanMsg=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeMsg}==0 ? 0 : $tots{prbytesMsg}/$tots{prtimeMsg},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg}==0 ? 0 : $tots{drbytesMsg}/$tots{drtimeMsg},1).'ps)' : '';
-  $pdrtputMeanMsg2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeMsg2}==0 ? 0 : $tots{prbytesMsg2}/$tots{prtimeMsg2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg2}==0 ? 0 : $tots{drbytesMsg2}/$tots{drtimeMsg2},1).'ps)' : '';
+  if ($AvailHiRes) {
+   # mean throughput per message class
+   $rtputMeanHam=formatDataSize($tots{rtimeHam}==0 ? 0 : $tots{rbytesHam}/$tots{rtimeHam},1).'ps';
+   $rtputMeanHam2=formatDataSize($tots{rtimeHam2}==0 ? 0 : $tots{rbytesHam2}/$tots{rtimeHam2},1).'ps';
+   $rtputMeanPassedSpam=formatDataSize($tots{rtimePassedSpam}==0 ? 0 : $tots{rbytesPassedSpam}/$tots{rtimePassedSpam},1).'ps';
+   $rtputMeanPassedSpam2=formatDataSize($tots{rtimePassedSpam2}==0 ? 0 : $tots{rbytesPassedSpam2}/$tots{rtimePassedSpam2},1).'ps';
+   $rtputMeanBlockedSpam=formatDataSize($tots{rtimeBlockedSpam}==0 ? 0 : $tots{rbytesBlockedSpam}/$tots{rtimeBlockedSpam},1).'ps';
+   $rtputMeanBlockedSpam2=formatDataSize($tots{rtimeBlockedSpam2}==0 ? 0 : $tots{rbytesBlockedSpam2}/$tots{rtimeBlockedSpam2},1).'ps';
+   $rtputMeanMsg=formatDataSize($tots{rtimeMsg}==0 ? 0 : $tots{rbytesMsg}/$tots{rtimeMsg},1).'ps';
+   $rtputMeanMsg2=formatDataSize($tots{rtimeMsg2}==0 ? 0 : $tots{rbytesMsg2}/$tots{rtimeMsg2},1).'ps';
+   $pdrtputMeanHam=' ('.formatDataSize($tots{prtimeHam}==0 ? 0 : $tots{prbytesHam}/$tots{prtimeHam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeHam}==0 ? 0 : $tots{drbytesHam}/$tots{drtimeHam},1).'ps)';
+   $pdrtputMeanHam2=' ('.formatDataSize($tots{prtimeHam2}==0 ? 0 : $tots{prbytesHam2}/$tots{prtimeHam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeHam2}==0 ? 0 : $tots{drbytesHam2}/$tots{drtimeHam2},1).'ps)';
+   $pdrtputMeanPassedSpam=' ('.formatDataSize($tots{prtimePassedSpam}==0 ? 0 : $tots{prbytesPassedSpam}/$tots{prtimePassedSpam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimePassedSpam}==0 ? 0 : $tots{drbytesPassedSpam}/$tots{drtimePassedSpam},1).'ps)';
+   $pdrtputMeanPassedSpam2=' ('.formatDataSize($tots{prtimePassedSpam2}==0 ? 0 : $tots{prbytesPassedSpam2}/$tots{prtimePassedSpam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimePassedSpam2}==0 ? 0 : $tots{drbytesPassedSpam2}/$tots{drtimePassedSpam2},1).'ps)';
+   $pdrtputMeanBlockedSpam=' ('.formatDataSize($tots{prtimeBlockedSpam}==0 ? 0 : $tots{prbytesBlockedSpam}/$tots{prtimeBlockedSpam},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeBlockedSpam}==0 ? 0 : $tots{drbytesBlockedSpam}/$tots{drtimeBlockedSpam},1).'ps)';
+   $pdrtputMeanBlockedSpam2=' ('.formatDataSize($tots{prtimeBlockedSpam2}==0 ? 0 : $tots{prbytesBlockedSpam2}/$tots{prtimeBlockedSpam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeBlockedSpam2}==0 ? 0 : $tots{drbytesBlockedSpam2}/$tots{drtimeBlockedSpam2},1).'ps)';
+   $pdrtputMeanMsg=' ('.formatDataSize($tots{prtimeMsg}==0 ? 0 : $tots{prbytesMsg}/$tots{prtimeMsg},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg}==0 ? 0 : $tots{drbytesMsg}/$tots{drtimeMsg},1).'ps)';
+   $pdrtputMeanMsg2=' ('.formatDataSize($tots{prtimeMsg2}==0 ? 0 : $tots{prbytesMsg2}/$tots{prtimeMsg2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg2}==0 ? 0 : $tots{drbytesMsg2}/$tots{drtimeMsg2},1).'ps)';
+  } else {
+   ($rtputMeanHam,$rtputMeanHam2,$rtputMeanPassedSpam,$rtputMeanPassedSpam2)=('n/a')x4;
+   ($rtputMeanBlockedSpam,$rtputMeanBlockedSpam2,$rtputMeanMsg,$rtputMeanMsg2)=('n/a')x4;
+   ($pdrtputMeanHam,$pdrtputMeanHam2,$pdrtputMeanPassedSpam,$pdrtputMeanPassedSpam2)=();
+   ($pdrtputMeanBlockedSpam,$pdrtputMeanBlockedSpam2,$pdrtputMeanMsg,$pdrtputMeanMsg2)=();
+  }
   if ($AvailHiRes) {
    # banner latency per message class
    $lBanner=formatTimeInterval($tots{msg}==0 ? 0 : $tots{lbanner}/$tots{msg},1).' ttfb / ';
@@ -3286,17 +3293,22 @@ sub webStats {
   $taskActiveM=$Stats{taskCreatedM}-$Stats{taskFinishedM};
   $taskActiveS=$Stats{taskCreatedS}-$Stats{taskFinishedS};
   $taskActiveW=$Stats{taskCreatedW}-$Stats{taskFinishedW};
-  # call time
-  $meanCallTime=$AvailHiRes ? formatTimeInterval($tots{taskCalls}==0 ? 0 : $Stats{taskTimeUser}/$tots{taskCalls},1).' avg' : 'n/a';
-  $meanCallTime2=$AvailHiRes ? formatTimeInterval($tots{taskCalls2}==0 ? 0 : $AllStats{taskTimeUser}/$tots{taskCalls2},1).' avg' : 'n/a';
-  $meanCallTimeM=$AvailHiRes ? formatTimeInterval($Stats{taskCallsM}==0 ? 0 : $Stats{taskTimeM}/$Stats{taskCallsM},1).' avg' : 'n/a';
-  $meanCallTimeM2=$AvailHiRes ? formatTimeInterval($AllStats{taskCallsM}==0 ? 0 : $AllStats{taskTimeM}/$AllStats{taskCallsM},1).' avg' : 'n/a';
-  $meanCallTimeS=$AvailHiRes ? formatTimeInterval($Stats{taskCallsS}==0 ? 0 : $Stats{taskTimeS}/$Stats{taskCallsS},1).' avg' : 'n/a';
-  $meanCallTimeS2=$AvailHiRes ? formatTimeInterval($AllStats{taskCallsS}==0 ? 0 : $AllStats{taskTimeS}/$AllStats{taskCallsS},1).' avg' : 'n/a';
-  $meanCallTimeW=$AvailHiRes ? formatTimeInterval($Stats{taskCallsW}==0 ? 0 : $Stats{taskTimeW}/$Stats{taskCallsW},1).' avg' : 'n/a';
-  $meanCallTimeW2=$AvailHiRes ? formatTimeInterval($AllStats{taskCallsW}==0 ? 0 : $AllStats{taskTimeW}/$AllStats{taskCallsW},1).' avg' : 'n/a';
-  $meanCallTimeKernel=$AvailHiRes ? formatTimeInterval($Stats{taskCallsKernel}==0 ? 0 : $Stats{taskTimeKernel}/$Stats{taskCallsKernel},1).' avg' : 'n/a';
-  $meanCallTimeKernel2=$AvailHiRes ? formatTimeInterval($AllStats{taskCallsKernel}==0 ? 0 : $AllStats{taskTimeKernel}/$AllStats{taskCallsKernel},1).' avg' : 'n/a';
+  if ($AvailHiRes) {
+   # call time
+   $meanCallTime=formatTimeInterval($tots{taskCalls}==0 ? 0 : $Stats{taskTimeUser}/$tots{taskCalls},1).' avg';
+   $meanCallTime2=formatTimeInterval($tots{taskCalls2}==0 ? 0 : $AllStats{taskTimeUser}/$tots{taskCalls2},1).' avg';
+   $meanCallTimeM=formatTimeInterval($Stats{taskCallsM}==0 ? 0 : $Stats{taskTimeM}/$Stats{taskCallsM},1).' avg';
+   $meanCallTimeM2=formatTimeInterval($AllStats{taskCallsM}==0 ? 0 : $AllStats{taskTimeM}/$AllStats{taskCallsM},1).' avg';
+   $meanCallTimeS=formatTimeInterval($Stats{taskCallsS}==0 ? 0 : $Stats{taskTimeS}/$Stats{taskCallsS},1).' avg';
+   $meanCallTimeS2=formatTimeInterval($AllStats{taskCallsS}==0 ? 0 : $AllStats{taskTimeS}/$AllStats{taskCallsS},1).' avg';
+   $meanCallTimeW=formatTimeInterval($Stats{taskCallsW}==0 ? 0 : $Stats{taskTimeW}/$Stats{taskCallsW},1).' avg';
+   $meanCallTimeW2=formatTimeInterval($AllStats{taskCallsW}==0 ? 0 : $AllStats{taskTimeW}/$AllStats{taskCallsW},1).' avg';
+   $meanCallTimeKernel=formatTimeInterval($Stats{taskCallsKernel}==0 ? 0 : $Stats{taskTimeKernel}/$Stats{taskCallsKernel},1).' avg';
+   $meanCallTimeKernel2=formatTimeInterval($AllStats{taskCallsKernel}==0 ? 0 : $AllStats{taskTimeKernel}/$AllStats{taskCallsKernel},1).' avg';
+  } else {
+   ($meanCallTime,$meanCallTime2,$meanCallTimeM,$meanCallTimeM2,$meanCallTimeS)=('n/a')x5;
+   ($meanCallTimeS2,$meanCallTimeW,$meanCallTimeW2,$meanCallTimeKernel,$meanCallTimeKernel2)=('n/a')x5;
+  }
   $taskQueue=$taskQueueHigh=$taskQueueNorm=$taskQueueIdle=$taskQueueWait=$taskQueueSuspend=0;
   foreach $tid (@Tasks) {
    next unless exists $Tasks{$tid};
