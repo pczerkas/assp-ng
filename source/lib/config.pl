@@ -2,6 +2,7 @@
 
 # perl antispam smtp proxy
 # (c) John Hanna, John Calvi, Robert Orso, AJ 2004 under the terms of the GPL
+# (c) 2006 Przemyslaw Czerkas <przemekc@poczta.onet.pl>
 
 $version='1.2.0';
 $modversion=' beta 0';
@@ -195,11 +196,12 @@ $SpamCollectionOptions={'7'=>'spam folder',
  ['ValidateHelo','Enable HELO Validation',0,\&checkbox,1,'(.*)',undef,
   'Enable HELO/EHLO Validation. Senders that fail HELO validation will receive SpamError SMTP error code.<br />
    Note: no error is sent if HELO Validation is in test mode.',undef],
- ['HeloPosition','HELO Check Position',1,\&radio,4,'([1-4])',undef,
+ ['HeloPosition','HELO Check Position',1,\&radio,5,'([1-5])',undef,
   '',{'1'=>'early (pre-mailfrom) -- no opt-outs nor failures collecting',
       '2'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '3'=>'normal (pre-data) -- as above, but honours HELO Failures Spamlover addresses',
-      '4'=>'late (post-data) -- as above, but failures are collected'}],
+      '4'=>'late (post-header) -- as above, but failures are collected',
+      '5'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
  ['HeloExtra','Extra HELO Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable HELO Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -223,10 +225,11 @@ $SpamCollectionOptions={'7'=>'spam folder',
  ['ValidateSender','Enable Sender Validation',0,\&checkbox,'','(.*)',undef,
   'Enable Sender Validation. Senders that fail this test will receive SpamError SMTP error code.<br />
    Note: no error is sent if Sender Validation is in test mode.',undef],
- ['SenderPosition','Sender Check Position',1,\&radio,3,'([1-3])',undef,
+ ['SenderPosition','Sender Check Position',1,\&radio,4,'([1-4])',undef,
   '',{'1'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '2'=>'normal (pre-data) -- as above, but honours Invalid Sender Spamlover addresses',
-      '3'=>'late (post-data) -- as above, but failures are collected'}],
+      '3'=>'late (post-header) -- as above, but failures are collected',
+      '4'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
  ['SenderExtra','Extra Sender Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable Sender Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -415,10 +418,11 @@ $SpamCollectionOptions={'7'=>'spam folder',
    This requires an installed <a href="http://spf.pobox.com/downloads.html" rel="external">Mail::SPF::Query</a> module in PERL.<br />
    Senders that fail SPF validation will receive SPFError SMTP error code.<br />
    Note: no error is sent if SPF is in test mode.',undef],
- ['SPFPosition','SPF Check Position',1,\&radio,3,'([1-3])',undef,
+ ['SPFPosition','SPF Check Position',1,\&radio,4,'([1-4])',undef,
   '',{'1'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '2'=>'normal (pre-data) -- as above, but honours SPF Failures Spamlover addresses',
-      '3'=>'late (post-data) -- as above, but failures are collected'}],
+      '3'=>'late (post-header) -- as above, but failures are collected',
+      '4'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
  ['SPFExtra','Extra SPF Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable SPF Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -440,12 +444,13 @@ $SpamCollectionOptions={'7'=>'spam folder',
  ['ValidateRBL','Enable Realtime Blacklist Validation',0,\&checkbox,1,'(.*)',\&configUpdateRBL,
   'Senders that fail RBL validation will receive RBLError SMTP error code.<br />
    Note: no error is sent if RBL is in test mode.',undef],
- ['RBLPosition','RBL Check Position',1,\&radio,5,'([1-5])',undef,
+ ['RBLPosition','RBL Check Position',1,\&radio,6,'([1-6])',undef,
   '',{'1'=>'early (on-connect) -- no opt-outs nor failures collecting',
       '2'=>'early (pre-banner) -- as above, but after Greeting Delay',
       '3'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '4'=>'normal (pre-data) -- as above, but honours RBL Failures Spamlover addresses',
-      '5'=>'late (post-data) -- as above, but failures are collected'}],
+      '5'=>'late (post-header) -- as above, but failures are collected',
+      '6'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
  ['RBLExtra','Extra RBL Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable RBL Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',

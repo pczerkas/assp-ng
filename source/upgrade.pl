@@ -2,6 +2,7 @@
 
 # perl antispam smtp proxy
 # (c) John Hanna, John Calvi, Robert Orso, AJ 2004 under the terms of the GPL
+# (c) 2006 Przemyslaw Czerkas <przemekc@poczta.onet.pl>
 
 # This is used to clean up some settings and perform an upgrade
 # Primarily these are settings that might be absent from assp.cfg
