@@ -280,6 +280,8 @@ sub doTask {
    # cpu stats
    if ($CanStatCPU) {
     $TaskStats{$class}->{user_time}+=$userTime;
+    $TaskStats{$class}->{min_user_time}=$userTime if $userTime<$TaskStats{$class}->{min_user_time} || !$TaskStats{$class}->{min_user_time};
+    $TaskStats{$class}->{max_user_time}=$userTime if $userTime>$TaskStats{$class}->{max_user_time};
    }
    $CurTaskID=-1;
    if (@ret) {
@@ -300,6 +302,8 @@ sub doTask {
   my $statTime=Time::HiRes::time();
   $kernelTime+=$statTime;
   $KernelStats{kernel_time}+=$kernelTime;
+  $KernelStats{min_kernel_time}=$kernelTime if $kernelTime<$KernelStats{min_kernel_time} || !$KernelStats{min_kernel_time};
+  $KernelStats{max_kernel_time}=$kernelTime if $kernelTime>$KernelStats{max_kernel_time};
   $KernelStats{idle_time}+=$idleTime;
   $KernelStats{user_time}+=$userTime;
  }
