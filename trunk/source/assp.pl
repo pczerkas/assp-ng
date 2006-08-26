@@ -1,21 +1,22 @@
 #!/usr/bin/perl
 
-#use Strict;
-#use Warnings;
-
 # perl antispam smtp proxy
 # (c) John Hanna, John Calvi, Robert Orso, AJ 2004 under the terms of the GPL
+# (c) 2006 Przemyslaw Czerkas <przemekc@poczta.onet.pl>
+
 # ASSP founded and developed to Version 1.0.12 by John Hanna.
 # ASSP web interface by AJ.
 # ASSP development since 1.0.12 by John Calvi.
 # LDAP implementation by Robert Orso.
-
 # Special Thanks for contributions to.....
   # Nigel Barling - SPF & RBL.
   # Mark Pizzolato - SMTP Session Limits.
   # Przemek Czerkas - SRS, Delaying, Searches, HTTP Compression, URIBL, RateLimit, CIDR IP's,
   #                   Corpus Viewer, Tooltips, Simulator
   # Fritz Borgstedt - HELO and Sender Validation
+
+## use Strict;
+## use Warnings;
 
 $version='1.2.0';
 $modversion=' beta 0'; # appended in version display.
@@ -1842,7 +1843,7 @@ sub preHeader {
    $this->{getline}=\&getHeader;
   }
   $sfh=$this->{sfh};
-  # conduct late (post-data) checks
+  # conduct late (post-header) checks
   return call('L3',$this->{getline}->($fh,$l)); L3:
  }];
  &{$sref->[0]};
@@ -1943,7 +1944,7 @@ sub npHeaderExec {
    return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
    $Stats{senderUnprocessed}++;
   }
-  # late (post-data) checks
+  # late (post-header) checks
   return if $HeloPosition==4 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   return if $SenderPosition==3 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
   checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && ($SPFExtra & 1);
@@ -1972,7 +1973,7 @@ sub wlHeaderExec {
    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
    $Stats{senderWhitelisted}++;
   }
-  # late (post-data) checks, optimize checkRWL() position
+  # late (post-header) checks, optimize checkRWL() position
   return if $HeloPosition==4 && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
   return if $SenderPosition==3 && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
   checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==3 && ($SPFExtra & 6)==6;
@@ -2013,7 +2014,7 @@ sub getHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  # late (post-data) checks, optimize checkRWL() position
+  # late (post-header) checks, optimize checkRWL() position
   checkBlacklist($fh);
   return if $HeloPosition==4 && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   return if $SenderPosition==3 && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2062,9 +2063,14 @@ sub npBody {
   $this->{maillength}+=length($l);
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
+   # late (post-body) checks
+   return if $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   return if $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+   checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && ($SPFExtra & 1);
+   return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && ($RBLExtra & 1); L2:
    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
-   return call('L3',npBodyDone($fh,$done)); L3:
+   return call('L3',checkURIBL($fh)) if $URIBLExtra & 1; L3:
+   return call('L4',npBodyDone($fh,$done)); L4:
   }
  }];
  &{$sref->[0]};
@@ -2092,18 +2098,43 @@ sub whiteBody {
     $this->{noprocessing}|=32;
    }
    if ($this->{noprocessing}) {
+    # late (post-body) checks
+    return if $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+    return if $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && ($SPFExtra & 1);
+    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && ($RBLExtra & 1); L2:
     checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
-    return call('L3',npBodyDone($fh,$done)); L3:
+    return call('L3',checkURIBL($fh)) if $URIBLExtra & 1; L3:
+    return call('L4',npBodyDone($fh,$done)); L4:
    } else {
-    checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
-    # optimize checkRWL() position
-    return call('L4',checkURIBL($fh)) if ($URIBLExtra & 6)==6; L4:
-    if (($URIBLExtra & 6)==2 || ($URIBLExtra & 6)==4) {
-     return call('L5',checkRWL($fh)); L5:
-     return call('L6',checkURIBL($fh)) if (($URIBLExtra & 2) && !$this->{rwlok} || ($URIBLExtra & 4) && $this->{rwlok}); L6:
+    # late (post-body) checks, optimize checkRWL() position
+    return if $HeloPosition==5 && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
+    return if $SenderPosition==4 && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
+    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && ($SPFExtra & 6)==6;
+    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && ($RBLExtra & 6)==6; L5:
+    if ($HeloPosition==5 && (($HeloExtra & 6)==2 || ($HeloExtra & 6)==4) ||
+        $SenderPosition==4 && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
+        $SPFPosition==4 && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
+        $RBLPosition==6 && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
+     return call('L6',checkRWL($fh)); L6:
+     # update some Sender Stats
+     if ($SenderPosition==4 && (($SenderExtra & 2) && $this->{rwlok} || ($SenderExtra & 4) && !$this->{rwlok})) {
+      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+      $Stats{senderWhitelisted}++;
+     }
+     return if $HeloPosition==5 && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+     return if $SenderPosition==4 && (($SenderExtra & 2) && !$this->{rwlok} || ($SenderExtra & 4) && $this->{rwlok}) && checkSender($fh,$this->{allLoveMfSpam})<0;
+     checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && (($SPFExtra & 2) && !$this->{rwlok} || ($SPFExtra & 4) && $this->{rwlok});
+     return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && (($RBLExtra & 2) && !$this->{rwlok} || ($RBLExtra & 4) && $this->{rwlok}); L7:
     }
-    return call('L7',whiteBodyDone($fh,$done)); L7:
+    checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
+    return call('L8',checkURIBL($fh)) if ($URIBLExtra & 6)==6; L8:
+    if (($URIBLExtra & 6)==2 || ($URIBLExtra & 6)==4) {
+     return call('L9',checkRWL($fh)); L9:
+     return call('L10',checkURIBL($fh)) if (($URIBLExtra & 2) && !$this->{rwlok} || ($URIBLExtra & 4) && $this->{rwlok}); L10:
+    }
+    return call('L11',whiteBodyDone($fh,$done)); L11:
    }
   }
  }];
@@ -2130,21 +2161,46 @@ sub getBody {
     $this->{noprocessing}|=8;
    }
    if ($this->{noprocessing}) {
+    # late (post-body) checks
+    return if $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+    return if $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && ($SPFExtra & 1);
+    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && ($RBLExtra & 1); L2:
     checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L2',checkURIBL($fh)) if $URIBLExtra & 1; L2:
-    return call('L3',npBodyDone($fh,$done)); L3:
+    return call('L3',checkURIBL($fh)) if $URIBLExtra & 1; L3:
+    return call('L4',npBodyDone($fh,$done)); L4:
    } else {
+    # late (post-body) checks, optimize checkRWL() position
+    return if $HeloPosition==5 && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+    return if $SenderPosition==4 && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
+    checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && ($SPFExtra & 4);
+    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && ($RBLExtra & 4); L5:
+    if ($HeloPosition==5 && !($HeloExtra & 4) ||
+        $SenderPosition==4 && !($SenderExtra & 4) ||
+        $SPFPosition==4 && !($SPFExtra & 4) ||
+        $RBLPosition==6 && !($RBLExtra & 4)) {
+     return call('L6',checkRWL($fh)); L6:
+     # update some Sender Stats
+     if ($SenderPosition==4 && !($SenderExtra & 4) && $this->{rwlok}) {
+      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+      $Stats{senderWhitelisted}++;
+     }
+     return if $HeloPosition==5 && !($HeloExtra & 4) && !$this->{rwlok} && checkHelo($fh,$this->{allLoveHlSpam})<0;
+     return if $SenderPosition==4 && !($SenderExtra & 4) && !$this->{rwlok} && checkSender($fh,$this->{allLoveMfSpam})<0;
+     checkSPF($fh,$this->{allLoveSPFSpam}) if $SPFPosition==4 && !($SPFExtra & 4) && !$this->{rwlok};
+     return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $RBLPosition==6 && !($RBLExtra & 4) && !$this->{rwlok}; L7:
+    }
     checkBomb($fh);
     checkScript($fh);
     checkAttach($fh,'(external)',$BlockExes,$extAttachColl);
-    # optimize checkRWL() position
-    return call('L4',checkURIBL($fh)) if $URIBLExtra & 4; L4:
+    return call('L8',checkURIBL($fh)) if $URIBLExtra & 4; L8:
     unless ($URIBLExtra & 4) {
-     return call('L5',checkRWL($fh)); L5:
-     return call('L6',checkURIBL($fh)) unless $this->{rwlok}; L6:
+     return call('L9',checkRWL($fh)); L9:
+     return call('L10',checkURIBL($fh)) unless $this->{rwlok}; L10:
     }
     checkSpam($fh);
-    return call('L7',getBodyDone($fh,$done)); L7:
+    return call('L11',getBodyDone($fh,$done)); L11:
    }
   }
  }];
@@ -5960,7 +6016,7 @@ sub restart {
 sub corpus {
  return unless $EnableCorpusInterface;
  my ($fn,$force)=@_;
- PeekLoop(); # ProcessMessages
+## PeekLoop(); # ProcessMessages
  if ($force || !exists ($Corpus{$fn})) {
   if (-f "$base/$fn") {
    $Corpus{$fn}=[stat("$base/$fn")]->[9]; # clear other fields (subject,from,to,flags)

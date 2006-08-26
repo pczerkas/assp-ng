@@ -1,7 +1,6 @@
 /*
  * perl antispam smtp proxy
- * (c) John Hanna, John Calvi, Robert Orso, AJ 2004 under the terms of the GPL
- * (c) 2006 Przemyslaw Czerkas
+ * (c) 2006 Przemyslaw Czerkas <przemekc@poczta.onet.pl>
  *
  * version='1.2.0'
  * modversion=' beta 0'
