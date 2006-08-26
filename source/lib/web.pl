@@ -3108,9 +3108,9 @@ sub webStats {
  my ($lBanner,$lBanner2,$lBannerHam,$lBannerHam2,$lBannerPassedSpam,$lBannerPassedSpam2,$lBannerBlockedSpam,$lBannerBlockedSpam2);
  my ($lMean,$lMean2,$lMeanHam,$lMeanHam2,$lMeanPassedSpam,$lMeanPassedSpam2,$lMeanBlockedSpam,$lMeanBlockedSpam2,$lMeanSuffix);
  my ($lminmaxMean,$lminmaxMean2,$lminmaxMeanHam,$lminmaxMeanHam2,$lminmaxMeanPassedSpam,$lminmaxMeanPassedSpam2,$lminmaxMeanBlockedSpam,$lminmaxMeanBlockedSpam2);
- my ($taskActive,$taskActiveM,$taskActiveS,$taskActiveW,$meanCallTime,$meanCallTime2,$meanCallTimeM,$meanCallTimeM2,$meanCallTimeS);
- my ($meanCallTimeS2,$meanCallTimeW,$meanCallTimeW2,$meanCallTimeKernel,$meanCallTimeKernel2,$taskQueue,$taskQueueHigh,$taskQueueNorm);
- my ($taskQueueIdle,$taskQueueWait,$taskQueueSuspend,$tid,$task);
+ my ($tActive,$tActiveM,$tActiveS,$tActiveW,$tctMean,$tctMean2,$tctMeanM,$tctMeanM2,$tctMeanS);
+ my ($tctMeanS2,$tctMeanW,$tctMeanW2,$tctMeanKernel,$tctMeanKernel2,$tQueue,$tQueueHigh,$tQueueNorm);
+ my ($tQueueIdle,$tQueueWait,$tQueueSuspend,$tid,$task);
  my ($cpuUsageAvg,$cpuUsageAvg2,$cpuUsageAvgKernel,$cpuUsageAvgKernel2,$cpuUsageAvgUser,$cpuUsageAvgUser2);
  my ($cpuUsageAvgM,$cpuUsageAvgM2,$cpuUsageAvgS,$cpuUsageAvgS2,$cpuUsageAvgW,$cpuUsageAvgW2);
  my ($tot_html,$mean_html,$msg_html,$traf_html,$prov_html,$tput_html,$lncy_html,$task_html,$name,$class,$value1,$value2);
@@ -3289,44 +3289,54 @@ sub webStats {
    $lMeanSuffix='';
   }
   # active tasks
-  $taskActive=$tots{taskCreated}-$tots{taskFinished};
-  $taskActiveM=$Stats{taskCreatedM}-$Stats{taskFinishedM};
-  $taskActiveS=$Stats{taskCreatedS}-$Stats{taskFinishedS};
-  $taskActiveW=$Stats{taskCreatedW}-$Stats{taskFinishedW};
+  $tActive=$tots{taskCreated}-$tots{taskFinished};
+  $tActiveM=$Stats{taskCreatedM}-$Stats{taskFinishedM};
+  $tActiveS=$Stats{taskCreatedS}-$Stats{taskFinishedS};
+  $tActiveW=$Stats{taskCreatedW}-$Stats{taskFinishedW};
   if ($AvailHiRes) {
-   # call time
-   $meanCallTime=formatTimeInterval($tots{taskCalls}==0 ? 0 : $Stats{taskTimeUser}/$tots{taskCalls},1).' avg';
-   $meanCallTime2=formatTimeInterval($tots{taskCalls2}==0 ? 0 : $AllStats{taskTimeUser}/$tots{taskCalls2},1).' avg';
-   $meanCallTimeM=formatTimeInterval($Stats{taskCallsM}==0 ? 0 : $Stats{taskTimeM}/$Stats{taskCallsM},1).' avg';
-   $meanCallTimeM2=formatTimeInterval($AllStats{taskCallsM}==0 ? 0 : $AllStats{taskTimeM}/$AllStats{taskCallsM},1).' avg';
-   $meanCallTimeS=formatTimeInterval($Stats{taskCallsS}==0 ? 0 : $Stats{taskTimeS}/$Stats{taskCallsS},1).' avg';
-   $meanCallTimeS2=formatTimeInterval($AllStats{taskCallsS}==0 ? 0 : $AllStats{taskTimeS}/$AllStats{taskCallsS},1).' avg';
-   $meanCallTimeW=formatTimeInterval($Stats{taskCallsW}==0 ? 0 : $Stats{taskTimeW}/$Stats{taskCallsW},1).' avg';
-   $meanCallTimeW2=formatTimeInterval($AllStats{taskCallsW}==0 ? 0 : $AllStats{taskTimeW}/$AllStats{taskCallsW},1).' avg';
-   $meanCallTimeKernel=formatTimeInterval($Stats{taskCallsKernel}==0 ? 0 : $Stats{taskTimeKernel}/$Stats{taskCallsKernel},1).' avg';
-   $meanCallTimeKernel2=formatTimeInterval($AllStats{taskCallsKernel}==0 ? 0 : $AllStats{taskTimeKernel}/$AllStats{taskCallsKernel},1).' avg';
+   # task call time
+   $tctMean=formatTimeInterval($tots{taskCalls}==0 ? 0 : $Stats{taskTimeUser}/$tots{taskCalls},1).' avg';
+   $tctMean2=formatTimeInterval($tots{taskCalls2}==0 ? 0 : $AllStats{taskTimeUser}/$tots{taskCalls2},1).' avg';
+   $tctMeanM=formatTimeInterval($Stats{taskCallsM}==0 ? 0 : $Stats{taskTimeM}/$Stats{taskCallsM},1).' avg';
+   $tctMeanM2=formatTimeInterval($AllStats{taskCallsM}==0 ? 0 : $AllStats{taskTimeM}/$AllStats{taskCallsM},1).' avg';
+   $tctMeanS=formatTimeInterval($Stats{taskCallsS}==0 ? 0 : $Stats{taskTimeS}/$Stats{taskCallsS},1).' avg';
+   $tctMeanS2=formatTimeInterval($AllStats{taskCallsS}==0 ? 0 : $AllStats{taskTimeS}/$AllStats{taskCallsS},1).' avg';
+   $tctMeanW=formatTimeInterval($Stats{taskCallsW}==0 ? 0 : $Stats{taskTimeW}/$Stats{taskCallsW},1).' avg';
+   $tctMeanW2=formatTimeInterval($AllStats{taskCallsW}==0 ? 0 : $AllStats{taskTimeW}/$AllStats{taskCallsW},1).' avg';
+   $tctMeanKernel=formatTimeInterval($Stats{taskCallsKernel}==0 ? 0 : $Stats{taskTimeKernel}/$Stats{taskCallsKernel},1).' avg';
+   $tctMeanKernel2=formatTimeInterval($AllStats{taskCallsKernel}==0 ? 0 : $AllStats{taskTimeKernel}/$AllStats{taskCallsKernel},1).' avg';
+   $tctminmaxMean=' ('.formatTimeInterval($Stats{taskMinTimeUser},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeUser},1).')';
+   $tctminmaxMean2=' ('.formatTimeInterval($AllStats{taskMinTimeUser},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeUser},1).')';
+   $tctminmaxMeanM=' ('.formatTimeInterval($Stats{taskMinTimeM},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeM},1).')';
+   $tctminmaxMeanM2=' ('.formatTimeInterval($AllStats{taskMinTimeM},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeM},1).')';
+   $tctminmaxMeanS=' ('.formatTimeInterval($Stats{taskMinTimeS},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeS},1).')';
+   $tctminmaxMeanS2=' ('.formatTimeInterval($AllStats{taskMinTimeS},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeS},1).')';
+   $tctminmaxMeanW=' ('.formatTimeInterval($Stats{taskMinTimeW},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeW},1).')';
+   $tctminmaxMeanW2=' ('.formatTimeInterval($AllStats{taskMinTimeW},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeW},1).')';
+   $tctminmaxMeanKernel=' ('.formatTimeInterval($Stats{taskMinTimeKernel},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeKernel},1).')';
+   $tctminmaxMeanKernel2=' ('.formatTimeInterval($AllStats{taskMinTimeKernel},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeKernel},1).')';
   } else {
-   ($meanCallTime,$meanCallTime2,$meanCallTimeM,$meanCallTimeM2,$meanCallTimeS)=('n/a')x5;
-   ($meanCallTimeS2,$meanCallTimeW,$meanCallTimeW2,$meanCallTimeKernel,$meanCallTimeKernel2)=('n/a')x5;
+   ($tctMean,$tctMean2,$tctMeanM,$tctMeanM2,$tctMeanS)=('n/a')x5;
+   ($tctMeanS2,$tctMeanW,$tctMeanW2,$tctMeanKernel,$tctMeanKernel2)=('n/a')x5;
   }
-  $taskQueue=$taskQueueHigh=$taskQueueNorm=$taskQueueIdle=$taskQueueWait=$taskQueueSuspend=0;
+  $tQueue=$tQueueHigh=$tQueueNorm=$tQueueIdle=$tQueueWait=$tQueueSuspend=0;
   foreach $tid (@Tasks) {
    next unless exists $Tasks{$tid};
    $task=$Tasks{$tid};
    if ($task->{state} eq 'RUN') {
     if ($task->{priority} eq 'HIGH') {
-     $taskQueueHigh++;
+     $tQueueHigh++;
     } elsif ($task->{priority} eq 'NORM') {
-     $taskQueueNorm++;
+     $tQueueNorm++;
     } else { # IDLE priority
-     $taskQueueIdle++;
+     $tQueueIdle++;
     }
    } elsif ($task->{state} eq 'SUSPEND') {
-    $taskQueueSuspend++;
+    $tQueueSuspend++;
    } else { # READ WRITE DELAY tasks
-    $taskQueueWait++;
+    $tQueueWait++;
    }
-   $taskQueue++;
+   $tQueue++;
   }
   # cpu usage
   $cpuUsageAvg=$CanStatCPU ? sprintf(" (%.1f%% avg)",$tots{taskTime}==0 ? 0 : 100*($Stats{taskTimeKernel}+$Stats{taskTimeUser})/$tots{taskTime}) : '';
@@ -3913,7 +3923,7 @@ EOT
       </tbody>
       <tbody id="StatItem9" class="$gpc->{StatItem9}">
 EOT
-  foreach $i ('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist) {
+  foreach $i ('RWL',@rwllist,'SPF','RBL',@rbllist,'URIBL',@uribllist) {
    if ($i=~/\./) {
     # provider
     $name=('&nbsp;'x4).$i;
@@ -3934,13 +3944,13 @@ EOT
     $name="$i Service Providers:";
     $value1=$Stats{"providerQueries$i"};
     if ($AvailHiRes) {
-     $value1.=' '.formatTimeInterval($Stats{"providerQueries$i"} ? $Stats{"providerTime$i"}/$Stats{"providerQueries$i"} : 0,1).' avg';
+     $value1.=' / '.formatTimeInterval($Stats{"providerQueries$i"} ? $Stats{"providerTime$i"}/$Stats{"providerQueries$i"} : 0,1).' avg';
     } else {
      $value1.=' n/a';
     }
     $value2=$AllStats{"providerQueries$i"};
     if ($AvailHiRes) {
-     $value2.=' '.formatTimeInterval($AllStats{"providerQueries$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerQueries$i"} : 0,1).' avg';
+     $value2.=' / '.formatTimeInterval($AllStats{"providerQueries$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerQueries$i"} : 0,1).' avg';
     } else {
      $value2.=' n/a';
     }
@@ -4069,77 +4079,77 @@ EOT
         </tr>
         <tr>
           <td class="statsTitle"><b>Tasks Active:</b></td>
-          <td class="statsValue">$taskActive ($Stats{taskMaxActive} max)</td>
+          <td class="statsValue">$tActive ($Stats{taskMaxActive} max)</td>
           <td class="statsValue">$AllStats{taskMaxActive} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Main:</b></td>
-          <td class="statsValue">$taskActiveM ($Stats{taskMaxActiveM} max)</td>
+          <td class="statsValue">$tActiveM ($Stats{taskMaxActiveM} max)</td>
           <td class="statsValue">$AllStats{taskMaxActiveM} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;SMTP:</b></td>
-          <td class="statsValue">$taskActiveS ($Stats{taskMaxActiveS} max)</td>
+          <td class="statsValue">$tActiveS ($Stats{taskMaxActiveS} max)</td>
           <td class="statsValue">$AllStats{taskMaxActiveS} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Web:</b></td>
-          <td class="statsValue">$taskActiveW ($Stats{taskMaxActiveW} max)</td>
+          <td class="statsValue">$tActiveW ($Stats{taskMaxActiveW} max)</td>
           <td class="statsValue">$AllStats{taskMaxActiveW} max</td>
         </tr>
         <tr>
-          <td class="statsTitle"><b>User Calls (Mean Time):</b></td>
-          <td class="statsValue">$tots{taskCalls} ($meanCallTime)</td>
-          <td class="statsValue">$tots{taskCalls2} ($meanCallTime2)</td>
+          <td class="statsTitle"><b>User Calls:</b></td>
+          <td class="statsValue">$tots{taskCalls} / $tctMean$tctminmaxMean</td>
+          <td class="statsValue">$tots{taskCalls2} / $tctMean2$tctminmaxMean2</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Main:</b></td>
-          <td class="statsValue">$Stats{taskCallsM} ($meanCallTimeM)</td>
-          <td class="statsValue">$AllStats{taskCallsM} ($meanCallTimeM2)</td>
+          <td class="statsValue">$Stats{taskCallsM} / $tctMeanM$tctminmaxMeanM</td>
+          <td class="statsValue">$AllStats{taskCallsM} / $tctMeanM2$tctminmaxMeanM2</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;SMTP:</b></td>
-          <td class="statsValue">$Stats{taskCallsS} ($meanCallTimeS)</td>
-          <td class="statsValue">$AllStats{taskCallsS} ($meanCallTimeS2)</td>
+          <td class="statsValue">$Stats{taskCallsS} / $tctMeanS$tctminmaxMeanS</td>
+          <td class="statsValue">$AllStats{taskCallsS} / $tctMeanS2$tctminmaxMeanS2</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Web:</b></td>
-          <td class="statsValue">$Stats{taskCallsW} ($meanCallTimeW)</td>
-          <td class="statsValue">$AllStats{taskCallsW} ($meanCallTimeW2)</td>
+          <td class="statsValue">$Stats{taskCallsW} / $tctMeanW$tctminmaxMeanW</td>
+          <td class="statsValue">$AllStats{taskCallsW} / $tctMeanW2$tctminmaxMeanW2</td>
         </tr>
         <tr>
-          <td class="statsTitle"><b>Kernel Calls (Mean Time):</b></td>
-          <td class="statsValue">$Stats{taskCallsKernel} ($meanCallTimeKernel)</td>
-          <td class="statsValue">$AllStats{taskCallsKernel} ($meanCallTimeKernel2)</td>
+          <td class="statsTitle"><b>Kernel Calls:</b></td>
+          <td class="statsValue">$Stats{taskCallsKernel} / $tctMeanKernel$tctminmaxMeanKernel</td>
+          <td class="statsValue">$AllStats{taskCallsKernel} / $tctMeanKernel2$tctminmaxMeanKernel2</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>Call Queue Length:</b></td>
-          <td class="statsValue">$taskQueue ($Stats{taskMaxQueue} max)</td>
+          <td class="statsValue">$tQueue ($Stats{taskMaxQueue} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueue} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;High Priority:</b></td>
-          <td class="statsValue">$taskQueueHigh ($Stats{taskMaxQueueHigh} max)</td>
+          <td class="statsValue">$tQueueHigh ($Stats{taskMaxQueueHigh} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueueHigh} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Normal Priority:</b></td>
-          <td class="statsValue">$taskQueueNorm ($Stats{taskMaxQueueNorm} max)</td>
+          <td class="statsValue">$tQueueNorm ($Stats{taskMaxQueueNorm} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueueNorm} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Idle Priority:</b></td>
-          <td class="statsValue">$taskQueueIdle ($Stats{taskMaxQueueIdle} max)</td>
+          <td class="statsValue">$tQueueIdle ($Stats{taskMaxQueueIdle} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueueIdle} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Waiting Calls:</b></td>
-          <td class="statsValue">$taskQueueWait ($Stats{taskMaxQueueWait} max)</td>
+          <td class="statsValue">$tQueueWait ($Stats{taskMaxQueueWait} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueueWait} max</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Suspended Calls:</b></td>
-          <td class="statsValue">$taskQueueSuspend ($Stats{taskMaxQueueSuspend} max)</td>
+          <td class="statsValue">$tQueueSuspend ($Stats{taskMaxQueueSuspend} max)</td>
           <td class="statsValue">$AllStats{taskMaxQueueSuspend} max</td>
         </tr>
         <tr>

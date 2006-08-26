@@ -443,7 +443,7 @@ sub taskStats {
  my ($prbytesRelaySMTP,$pwbytesRelaySMTP,$drbytesRelaySMTP,$dwbytesRelaySMTP,$prtimeRelaySMTP,$pwtimeRelaySMTP,$drtimeRelaySMTP,$dwtimeRelaySMTP);
  my ($prbytesSMTP,$pwbytesSMTP,$drbytesSMTP,$dwbytesSMTP,$prtimeSMTP,$pwtimeSMTP,$drtimeSMTP,$dwtimeSMTP,$rbytesSMTP,$wbytesSMTP,$rtimeSMTP,$wtimeSMTP);
  my ($kernel_calls,$kernel_time,$idle_time,$user_time,$class,$v,%task_created,%task_finished,%task_calls,%task_time,$cpu_time);
- my ($max_active_total,$max_active,$l);
+ my ($task_min_time_user,$task_max_time_user,$max_active_total,$max_active,$l);
  return coro(sub{&jump;
   $prbytesClientSMTP=$pwbytesClientSMTP=$drbytesClientSMTP=$dwbytesClientSMTP=$prtimeClientSMTP=$pwtimeClientSMTP=$drtimeClientSMTP=$dwtimeClientSMTP=0;
   $prbytesServerSMTP=$pwbytesServerSMTP=$drbytesServerSMTP=$dwbytesServerSMTP=$prtimeServerSMTP=$pwtimeServerSMTP=$drtimeServerSMTP=$dwtimeServerSMTP=0;
@@ -479,16 +479,25 @@ sub taskStats {
    $pwtimeRelaySMTP=$Stats{pwtimeRelaySMTP}-$pwtimeRelaySMTP;
    $drtimeRelaySMTP=$Stats{drtimeRelaySMTP}-$drtimeRelaySMTP;
    $dwtimeRelaySMTP=$Stats{dwtimeRelaySMTP}-$dwtimeRelaySMTP;
+   ($task_min_time_user,$task_max_time_user)=();
    while (($class,$v)=each(%TaskStats)) {
     $Stats{"taskCreated$class"}+=$task_created{$class}=$v->{created}-$task_created{$class};
     $Stats{"taskFinished$class"}+=$task_finished{$class}=$v->{finished}-$task_finished{$class};
     $Stats{"taskCalls$class"}+=$task_calls{$class}=$v->{calls}-$task_calls{$class};
     $Stats{"taskTime$class"}+=$task_time{$class}=$v->{user_time}-$task_time{$class};
+    $Stats{"taskMinTime$class"}=$TaskStats{$class}->{min_user_time};
+    $Stats{"taskMaxTime$class"}=$TaskStats{$class}->{max_user_time};
+    $task_min_time_user=$TaskStats{$class}->{min_user_time} if $TaskStats{$class}->{min_user_time}<$task_min_time_user || !$task_min_time_user;
+    $task_max_time_user=$TaskStats{$class}->{max_user_time} if $TaskStats{$class}->{max_user_time}>$task_max_time_user;
    }
    $Stats{taskCallsKernel}+=$kernel_calls=$KernelStats{calls}-$kernel_calls;
    $Stats{taskTimeKernel}+=$kernel_time=$KernelStats{kernel_time}-$kernel_time;
+   $Stats{taskMinTimeKernel}=$KernelStats{min_kernel_time};
+   $Stats{taskMaxTimeKernel}=$KernelStats{max_kernel_time};
    $Stats{taskTimeIdle}+=$idle_time=$KernelStats{idle_time}-$idle_time;
    $Stats{taskTimeUser}+=$user_time=$KernelStats{user_time}-$user_time;
+   $Stats{taskMinTimeUser}=$task_min_time_user;
+   $Stats{taskMaxTimeUser}=$task_max_time_user;
    # calculate stats
    $prtputClientSMTP=$prtimeClientSMTP==0 ? 0 : $prbytesClientSMTP/$prtimeClientSMTP;
    $pwtputClientSMTP=$pwtimeClientSMTP==0 ? 0 : $pwbytesClientSMTP/$pwtimeClientSMTP;
@@ -3264,12 +3273,28 @@ sub checkSPF {
    my $header_comment;
    if ($SPFPosition<3) {
     # no recipients at this stage
+    $Stats{providerQueriesSPF}++;
+    my $time=Time::HiRes::time() if $AvailHiRes;
     ($per_result,$smtp_comment,$header_comment)=$query->result();
+    if ($AvailHiRes) {
+     $time=Time::HiRes::time()-$time;
+     $Stats{providerTimeSPF}+=$time;
+     $Stats{providerMinTimeSPF}=$time if $time<$Stats{providerMinTimeSPF} || !$Stats{providerMinTimeSPF};
+     $Stats{providerMaxTimeSPF}=$time if $time>$Stats{providerMaxTimeSPF};
+    }
    } else {
     foreach my $recip (split(' ', $this->{rcpt})) {
+     $Stats{providerQueriesSPF}++;
+     my $time=Time::HiRes::time() if $AvailHiRes;
      ($per_result,$smtp_comment,$header_comment)=$query->result2($recip);
+     if ($AvailHiRes) {
+      $time=Time::HiRes::time()-$time;
+      $Stats{providerTimeSPF}+=$time;
+      $Stats{providerMinTimeSPF}=$time if $time<$Stats{providerMinTimeSPF} || !$Stats{providerMinTimeSPF};
+      $Stats{providerMaxTimeSPF}=$time if $time>$Stats{providerMaxTimeSPF};
+     }
      # Keep processing SPF records until all recipients are checked otherwise breakout if fail
-     if ($per_result eq 'fail') { last; }
+     last if $per_result eq 'fail';
     }
    }
    my $received_spf;
@@ -5035,7 +5060,7 @@ sub resetStats {
   $Stats{"dwbytes$t"}=0;
   $Stats{"dwtime$t"}=0;
  }
- foreach my $p ('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist) {
+ foreach my $p ('RWL',@rwllist,'SPF','RBL',@rbllist,'URIBL',@uribllist) {
   $Stats{"providerQueries$p"}=0;
   $Stats{"providerReplies$p"}=0;
   $Stats{"providerHits$p"}=0;
@@ -5123,7 +5148,7 @@ sub saveStats {
   if ($s eq 'version') {
    # just copy
    $AllStats{$s}=$v;
-  } elsif ($s=~/^(?:providerMin)/) {
+  } elsif ($s=~/^(?:taskMin|providerMin)/) {
    # pick smaller non-zero value
    $AllStats{$s}=$v if $v && $v<$AllStats{$s} || !$AllStats{$s};
   } elsif ($s=~/^(?:smtpMax|taskMax|(?:p|d|)(?:r|w)tputMax|providerMax)/) {
