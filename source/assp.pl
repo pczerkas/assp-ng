@@ -4998,42 +4998,42 @@ sub resetStats {
             'msgNoRcpt','msgDelayed','msgNoSRSBounce','msgMaxErrors','msgEarlytalker','msgRateLimited','msgAborted');
  foreach my $m (@mcats) {
   $Stats{$m}=0;
-  $Stats{'prbytes'.$m}=0;
-  $Stats{'prtime'.$m}=0;
-  $Stats{'pwbytes'.$m}=0;
-  $Stats{'pwtime'.$m}=0;
-  $Stats{'drbytes'.$m}=0;
-  $Stats{'drtime'.$m}=0;
-  $Stats{'dwbytes'.$m}=0;
-  $Stats{'dwtime'.$m}=0;
-  $Stats{'lbanner'.$m}=0;
-  $Stats{'lmin'.$m}=0;
-  $Stats{'lmax'.$m}=0;
+  $Stats{"prbytes$m"}=0;
+  $Stats{"prtime$m"}=0;
+  $Stats{"wbytes$m"}=0;
+  $Stats{"pwtime$m"}=0;
+  $Stats{"drbytes$m"}=0;
+  $Stats{"drtime$m"}=0;
+  $Stats{"dwbytes$m"}=0;
+  $Stats{"dwtime$m"}=0;
+  $Stats{"lbanner$m"}=0;
+  $Stats{"lmin$m"}=0;
+  $Stats{"lmax$m"}=0;
  }
  my @mcats2=('ClientAccepted','other','ServerPassed','proxied','cc','reportreturns','ClientBlocked','otherblocked','ServerAborted');
  foreach my $m (@mcats2) {
-  $Stats{'prbytes'.$m}=0;
-  $Stats{'prtime'.$m}=0;
-  $Stats{'pwbytes'.$m}=0;
-  $Stats{'pwtime'.$m}=0;
-  $Stats{'drbytes'.$m}=0;
-  $Stats{'drtime'.$m}=0;
-  $Stats{'dwbytes'.$m}=0;
-  $Stats{'dwtime'.$m}=0;
-  $Stats{'lbanner'.$m}=0;
-  $Stats{'lmin'.$m}=0;
-  $Stats{'lmax'.$m}=0;
+  $Stats{"prbytes$m"}=0;
+  $Stats{"prtime$m"}=0;
+  $Stats{"pwbytes$m"}=0;
+  $Stats{"pwtime$m"}=0;
+  $Stats{"drbytes$m"}=0;
+  $Stats{"drtime$m"}=0;
+  $Stats{"dwbytes$m"}=0;
+  $Stats{"dwtime$m"}=0;
+  $Stats{"'lbanner$m"}=0;
+  $Stats{"'lmin$m"}=0;
+  $Stats{"lmax$m"}=0;
  }
  my @tcats=('ClientSMTP','ServerSMTP','RelaySMTP');
  foreach my $t (@tcats) {
-  $Stats{'prbytes'.$t}=0;
-  $Stats{'prtime'.$t}=0;
-  $Stats{'pwbytes'.$t}=0;
-  $Stats{'pwtime'.$t}=0;
-  $Stats{'drbytes'.$t}=0;
-  $Stats{'drtime'.$t}=0;
-  $Stats{'dwbytes'.$t}=0;
-  $Stats{'dwtime'.$t}=0;
+  $Stats{"prbytes$t"}=0;
+  $Stats{"prtime$t"}=0;
+  $Stats{"pwbytes$t"}=0;
+  $Stats{"pwtime$t"}=0;
+  $Stats{"drbytes$t"}=0;
+  $Stats{"drtime$t"}=0;
+  $Stats{"dwbytes$t"}=0;
+  $Stats{"dwtime$t"}=0;
  }
  foreach my $p ('RWL',@rwllist,'RBL',@rbllist,'URIBL',@uribllist) {
   $Stats{"providerQueries$p"}=0;
@@ -5123,12 +5123,12 @@ sub saveStats {
   if ($s eq 'version') {
    # just copy
    $AllStats{$s}=$v;
+  } elsif ($s=~/^(?:providerMin)/) {
+   # pick smaller non-zero value
+   $AllStats{$s}=$v if $v && $v<$AllStats{$s} || !$AllStats{$s};
   } elsif ($s=~/^(?:smtpMax|taskMax|(?:p|d|)(?:r|w)tputMax|providerMax)/) {
    # pick greater value
    $AllStats{$s}=$v if $v>$AllStats{$s};
-  } elsif ($s=~/^(?:providerMin)/) {
-   # pick smaller value
-   $AllStats{$s}=$v if $v<$AllStats{$s} || !$AllStats{$s};
   } else {
    $AllStats{$s}+=$v;
   }

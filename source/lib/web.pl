@@ -3106,7 +3106,7 @@ sub webStats {
  my ($rtputMeanHam,$rtputMeanHam2,$rtputMeanPassedSpam,$rtputMeanPassedSpam2,$rtputMeanBlockedSpam,$rtputMeanBlockedSpam2,$rtputMeanMsg,$rtputMeanMsg2);
  my ($pdrtputMeanHam,$pdrtputMeanHam2,$pdrtputMeanPassedSpam,$pdrtputMeanPassedSpam2,$pdrtputMeanBlockedSpam,$pdrtputMeanBlockedSpam2,$pdrtputMeanMsg,$pdrtputMeanMsg2);
  my ($lBanner,$lBanner2,$lBannerHam,$lBannerHam2,$lBannerPassedSpam,$lBannerPassedSpam2,$lBannerBlockedSpam,$lBannerBlockedSpam2);
- my ($lMean,$lMean2,$lMeanHam,$lMeanHam2,$lMeanPassedSpam,$lMeanPassedSpam2,$lMeanBlockedSpam,$lMeanBlockedSpam2);
+ my ($lMean,$lMean2,$lMeanHam,$lMeanHam2,$lMeanPassedSpam,$lMeanPassedSpam2,$lMeanBlockedSpam,$lMeanBlockedSpam2,$lMeanSuffix);
  my ($lminmaxMean,$lminmaxMean2,$lminmaxMeanHam,$lminmaxMeanHam2,$lminmaxMeanPassedSpam,$lminmaxMeanPassedSpam2,$lminmaxMeanBlockedSpam,$lminmaxMeanBlockedSpam2);
  my ($taskActive,$taskActiveM,$taskActiveS,$taskActiveW,$meanCallTime,$meanCallTime2,$meanCallTimeM,$meanCallTimeM2,$meanCallTimeS);
  my ($meanCallTimeS2,$meanCallTimeW,$meanCallTimeW2,$meanCallTimeKernel,$meanCallTimeKernel2,$taskQueue,$taskQueueHigh,$taskQueueNorm);
@@ -3246,32 +3246,41 @@ sub webStats {
   $pdrtputMeanBlockedSpam2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeBlockedSpam2}==0 ? 0 : $tots{prbytesBlockedSpam2}/$tots{prtimeBlockedSpam2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeBlockedSpam2}==0 ? 0 : $tots{drbytesBlockedSpam2}/$tots{drtimeBlockedSpam2},1).'ps)' : '';
   $pdrtputMeanMsg=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeMsg}==0 ? 0 : $tots{prbytesMsg}/$tots{prtimeMsg},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg}==0 ? 0 : $tots{drbytesMsg}/$tots{drtimeMsg},1).'ps)' : '';
   $pdrtputMeanMsg2=$AvailHiRes ? ' ('.formatDataSize($tots{prtimeMsg2}==0 ? 0 : $tots{prbytesMsg2}/$tots{prtimeMsg2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg2}==0 ? 0 : $tots{drbytesMsg2}/$tots{drtimeMsg2},1).'ps)' : '';
-  # banner latency per message class
-  $lBanner=$AvailHiRes ? formatTimeInterval($tots{msg}==0 ? 0 : $tots{lbanner}/$tots{msg},1) : 'n/a';
-  $lBanner2=$AvailHiRes ? formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lbanner2}/$tots{msg2},1) : 'n/a';
-  $lBannerHam=$AvailHiRes ? formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lbannerHam}/$tots{msgHam},1) : 'n/a';
-  $lBannerHam2=$AvailHiRes ? formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lbannerHam2}/$tots{msgHam2},1) : 'n/a';
-  $lBannerPassedSpam=$AvailHiRes ? formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lbannerPassedSpam}/$tots{msgPassedSpam},1) : 'n/a';
-  $lBannerPassedSpam2=$AvailHiRes ? formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lbannerPassedSpam2}/$tots{msgPassedSpam2},1) : 'n/a';
-  $lBannerBlockedSpam=$AvailHiRes ? formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lbannerBlockedSpam}/$tots{msgBlockedSpam},1) : 'n/a';
-  $lBannerBlockedSpam2=$AvailHiRes ? formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lbannerBlockedSpam2}/$tots{msgBlockedSpam2},1) : 'n/a';
-  # mean latency per message class
-  $lMean=$AvailHiRes ? ' '.formatTimeInterval($tots{msg}==0 ? 0 : ($tots{lmin}+$tots{lmax})/(2*$tots{msg}),1) : '';
-  $lMean2=$AvailHiRes ? ' '.formatTimeInterval($tots{msg2}==0 ? 0 : ($tots{lmin2}+$tots{lmax2})/(2*$tots{msg2}),1) : '';
-  $lMeanHam=$AvailHiRes ? ' '.formatTimeInterval($tots{msgHam}==0 ? 0 : ($tots{lminHam}+$tots{lmaxHam})/(2*$tots{msgHam}),1) : '';
-  $lMeanHam2=$AvailHiRes ? ' '.formatTimeInterval($tots{msgHam2}==0 ? 0 : ($tots{lminHam2}+$tots{lmaxHam2})/(2*$tots{msgHam2}),1) : '';
-  $lMeanPassedSpam=$AvailHiRes ? ' '.formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : ($tots{lminPassedSpam}+$tots{lmaxPassedSpam})/(2*$tots{msgPassedSpam}),1) : '';
-  $lMeanPassedSpam2=$AvailHiRes ? ' '.formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : ($tots{lminPassedSpam2}+$tots{lmaxPassedSpam2})/(2*$tots{msgPassedSpam2}),1) : '';
-  $lMeanBlockedSpam=$AvailHiRes ? ' '.formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : ($tots{lminBlockedSpam}+$tots{lmaxBlockedSpam})/(2*$tots{msgBlockedSpam}),1) : '';
-  $lMeanBlockedSpam2=$AvailHiRes ? ' '.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : ($tots{lminBlockedSpam2}+$tots{lmaxBlockedSpam2})/(2*$tots{msgBlockedSpam2}),1) : '';
-  $lminmaxMean=$AvailHiRes ? ' ('.formatTimeInterval($tots{msg}==0 ? 0 : $tots{lmin}/$tots{msg},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msg}==0 ? 0 : $tots{lmax}/$tots{msg},1).')' : '';
-  $lminmaxMean2=$AvailHiRes ? ' ('.formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lmin2}/$tots{msg2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lmax2}/$tots{msg2},1).')' : '';
-  $lminmaxMeanHam=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lminHam}/$tots{msgHam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lmaxHam}/$tots{msgHam},1).')' : '';
-  $lminmaxMeanHam2=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lminHam2}/$tots{msgHam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lmaxHam2}/$tots{msgHam2},1).')' : '';
-  $lminmaxMeanPassedSpam=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lminPassedSpam}/$tots{msgPassedSpam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lmaxPassedSpam}/$tots{msgPassedSpam},1).')' : '';
-  $lminmaxMeanPassedSpam2=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lminPassedSpam2}/$tots{msgPassedSpam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lmaxPassedSpam2}/$tots{msgPassedSpam2},1).')' : '';
-  $lminmaxMeanBlockedSpam=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lminBlockedSpam}/$tots{msgBlockedSpam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lmaxBlockedSpam}/$tots{msgBlockedSpam},1).')' : '';
-  $lminmaxMeanBlockedSpam2=$AvailHiRes ? ' ('.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lminBlockedSpam2}/$tots{msgBlockedSpam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lmaxBlockedSpam2}/$tots{msgBlockedSpam2},1).')' : '';
+  if ($AvailHiRes) {
+   # banner latency per message class
+   $lBanner=formatTimeInterval($tots{msg}==0 ? 0 : $tots{lbanner}/$tots{msg},1).' ttfb / ';
+   $lBanner2=formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lbanner2}/$tots{msg2},1).' ttfb / ';
+   $lBannerHam=formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lbannerHam}/$tots{msgHam},1).' ttfb / ';
+   $lBannerHam2=formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lbannerHam2}/$tots{msgHam2},1).' ttfb / ';
+   $lBannerPassedSpam=formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lbannerPassedSpam}/$tots{msgPassedSpam},1).' ttfb / ';
+   $lBannerPassedSpam2=formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lbannerPassedSpam2}/$tots{msgPassedSpam2},1).' ttfb / ';
+   $lBannerBlockedSpam=formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lbannerBlockedSpam}/$tots{msgBlockedSpam},1).' ttfb / ';
+   $lBannerBlockedSpam2=formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lbannerBlockedSpam2}/$tots{msgBlockedSpam2},1).' ttfb / ';
+   # mean latency per message class
+   $lMean=formatTimeInterval($tots{msg}==0 ? 0 : ($tots{lmin}+$tots{lmax})/(2*$tots{msg}),1);
+   $lMean2=formatTimeInterval($tots{msg2}==0 ? 0 : ($tots{lmin2}+$tots{lmax2})/(2*$tots{msg2}),1);
+   $lMeanHam=formatTimeInterval($tots{msgHam}==0 ? 0 : ($tots{lminHam}+$tots{lmaxHam})/(2*$tots{msgHam}),1);
+   $lMeanHam2=formatTimeInterval($tots{msgHam2}==0 ? 0 : ($tots{lminHam2}+$tots{lmaxHam2})/(2*$tots{msgHam2}),1);
+   $lMeanPassedSpam=formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : ($tots{lminPassedSpam}+$tots{lmaxPassedSpam})/(2*$tots{msgPassedSpam}),1);
+   $lMeanPassedSpam2=formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : ($tots{lminPassedSpam2}+$tots{lmaxPassedSpam2})/(2*$tots{msgPassedSpam2}),1);
+   $lMeanBlockedSpam=formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : ($tots{lminBlockedSpam}+$tots{lmaxBlockedSpam})/(2*$tots{msgBlockedSpam}),1);
+   $lMeanBlockedSpam2=formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : ($tots{lminBlockedSpam2}+$tots{lmaxBlockedSpam2})/(2*$tots{msgBlockedSpam2}),1);
+   $lminmaxMean=' ('.formatTimeInterval($tots{msg}==0 ? 0 : $tots{lmin}/$tots{msg},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msg}==0 ? 0 : $tots{lmax}/$tots{msg},1).')';
+   $lminmaxMean2=' ('.formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lmin2}/$tots{msg2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msg2}==0 ? 0 : $tots{lmax2}/$tots{msg2},1).')';
+   $lminmaxMeanHam=' ('.formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lminHam}/$tots{msgHam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgHam}==0 ? 0 : $tots{lmaxHam}/$tots{msgHam},1).')';
+   $lminmaxMeanHam2=' ('.formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lminHam2}/$tots{msgHam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgHam2}==0 ? 0 : $tots{lmaxHam2}/$tots{msgHam2},1).')';
+   $lminmaxMeanPassedSpam=' ('.formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lminPassedSpam}/$tots{msgPassedSpam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgPassedSpam}==0 ? 0 : $tots{lmaxPassedSpam}/$tots{msgPassedSpam},1).')';
+   $lminmaxMeanPassedSpam2=' ('.formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lminPassedSpam2}/$tots{msgPassedSpam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgPassedSpam2}==0 ? 0 : $tots{lmaxPassedSpam2}/$tots{msgPassedSpam2},1).')';
+   $lminmaxMeanBlockedSpam=' ('.formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lminBlockedSpam}/$tots{msgBlockedSpam},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgBlockedSpam}==0 ? 0 : $tots{lmaxBlockedSpam}/$tots{msgBlockedSpam},1).')';
+   $lminmaxMeanBlockedSpam2=' ('.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lminBlockedSpam2}/$tots{msgBlockedSpam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lmaxBlockedSpam2}/$tots{msgBlockedSpam2},1).')';
+   $lMeanSuffix=' avg';
+  } else {
+   ($lBanner,$lBanner2,$lBannerHam,$lBannerHam2,$lBannerPassedSpam,$lBannerPassedSpam2,$lBannerBlockedSpam,$lBannerBlockedSpam2)=('n/a')x8;
+   ($lMean,$lMean2,$lMeanHam,$lMeanHam2,$lMeanPassedSpam,$lMeanPassedSpam2,$lMeanBlockedSpam,$lMeanBlockedSpam2)=();
+   ($lminmaxMean,$lminmaxMean2,$lminmaxMeanHam,$lminmaxMeanHam2)=();
+   ($lminmaxMeanPassedSpam,$lminmaxMeanPassedSpam2,$lminmaxMeanBlockedSpam,$lminmaxMeanBlockedSpam2)=();
+   $lMeanSuffix='';
+  }
   # active tasks
   $taskActive=$tots{taskCreated}-$tots{taskFinished};
   $taskActiveM=$Stats{taskCreatedM}-$Stats{taskFinishedM};
@@ -3736,23 +3745,23 @@ EOT
         </tr>
         <tr>
           <td class="statsTitle"><b>Mean Client Latency:</b></td>
-          <td class="statsValue">$lBanner$lMean$lminmaxMean</td>
-          <td class="statsValue">$lBanner2$lMean2$lminmaxMean2</td>
+          <td class="statsValue">$lBanner$lMean$lminmaxMean$lMeanSuffix</td>
+          <td class="statsValue">$lBanner2$lMean2$lminmaxMean2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Passed Ham:</b></td>
-          <td class="statsValue">$lBannerHam$lMeanHam$lminmaxMeanHam</td>
-          <td class="statsValue">$lBannerHam2$lMeanHam2$lminmaxMeanHam2</td>
+          <td class="statsValue">$lBannerHam$lMeanHam$lminmaxMeanHam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerHam2$lMeanHam2$lminmaxMeanHam2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Passed Spam:</b></td>
-          <td class="statsValue">$lBannerPassedSpam$lMeanPassedSpam$lminmaxMeanPassedSpam</td>
-          <td class="statsValue">$lBannerPassedSpam2$lMeanPassedSpam2$lminmaxMeanPassedSpam2</td>
+          <td class="statsValue">$lBannerPassedSpam$lMeanPassedSpam$lminmaxMeanPassedSpam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerPassedSpam2$lMeanPassedSpam2$lminmaxMeanPassedSpam2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Blocked Spam:</b></td>
-          <td class="statsValue">$lBannerBlockedSpam$lMeanBlockedSpam$lminmaxMeanBlockedSpam</td>
-          <td class="statsValue">$lBannerBlockedSpam2$lMeanBlockedSpam2$lminmaxMeanBlockedSpam2</td>
+          <td class="statsValue">$lBannerBlockedSpam$lMeanBlockedSpam$lminmaxMeanBlockedSpam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerBlockedSpam2$lMeanBlockedSpam2$lminmaxMeanBlockedSpam2$lMeanSuffix</td>
         </tr>
 EOT
   } else {
@@ -3799,23 +3808,23 @@ EOT
         </tr>
         <tr>
           <td class="statsTitle"><b>Mean Client Latency:</b></td>
-          <td class="statsValue">$lBanner</td>
-          <td class="statsValue">$lBanner2</td>
+          <td class="statsValue">$lBanner$lMean$lMeanSuffix</td>
+          <td class="statsValue">$lBanner2$lMean2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Passed Ham:</b></td>
-          <td class="statsValue">$lBannerHam</td>
-          <td class="statsValue">$lBannerHam2</td>
+          <td class="statsValue">$lBannerHam$lMeanHam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerHam2$lMeanHam2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Passed Spam:</b></td>
-          <td class="statsValue">$lBannerPassedSpam</td>
-          <td class="statsValue">$lBannerPassedSpam2</td>
+          <td class="statsValue">$lBannerPassedSpam$lMeanPassedSpam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerPassedSpam2$lMeanPassedSpam2$lMeanSuffix</td>
         </tr>
         <tr>
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Blocked Spam:</b></td>
-          <td class="statsValue">$lBannerBlockedSpam</td>
-          <td class="statsValue">$lBannerBlockedSpam2</td>
+          <td class="statsValue">$lBannerBlockedSpam$lMeanBlockedSpam$lMeanSuffix</td>
+          <td class="statsValue">$lBannerBlockedSpam2$lMeanBlockedSpam2$lMeanSuffix</td>
         </tr>
 EOT
   }
@@ -3898,13 +3907,13 @@ EOT
     $name=('&nbsp;'x4).$i;
     $value1=$Stats{"providerReplies$i"}.'/'.$Stats{"providerHits$i"};
     if ($AvailHiRes) {
-     $value1.='/'.formatTimeInterval($Stats{"providerReplies$i"} ? $Stats{"providerTime$i"}/$Stats{"providerReplies$i"} : 0,1);
+     $value1.=' '.formatTimeInterval($Stats{"providerReplies$i"} ? $Stats{"providerTime$i"}/$Stats{"providerReplies$i"} : 0,1).' avg';
     } else {
      $value1.=' n/a';
     }
     $value2=$AllStats{"providerReplies$i"}.'/'.$AllStats{"providerHits$i"};
     if ($AvailHiRes) {
-     $value2.='/'.formatTimeInterval($AllStats{"providerReplies$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerReplies$i"} : 0,1);
+     $value2.=' '.formatTimeInterval($AllStats{"providerReplies$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerReplies$i"} : 0,1).' avg';
     } else {
      $value2.=' n/a';
     }
@@ -3913,13 +3922,13 @@ EOT
     $name="$i Service Providers:";
     $value1=$Stats{"providerQueries$i"};
     if ($AvailHiRes) {
-     $value1.='/'.formatTimeInterval($Stats{"providerQueries$i"} ? $Stats{"providerTime$i"}/$Stats{"providerQueries$i"} : 0,1);
+     $value1.=' '.formatTimeInterval($Stats{"providerQueries$i"} ? $Stats{"providerTime$i"}/$Stats{"providerQueries$i"} : 0,1).' avg';
     } else {
      $value1.=' n/a';
     }
     $value2=$AllStats{"providerQueries$i"};
     if ($AvailHiRes) {
-     $value2.='/'.formatTimeInterval($AllStats{"providerQueries$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerQueries$i"} : 0,1);
+     $value2.=' '.formatTimeInterval($AllStats{"providerQueries$i"} ? $AllStats{"providerTime$i"}/$AllStats{"providerQueries$i"} : 0,1).' avg';
     } else {
      $value2.=' n/a';
     }
@@ -3993,14 +4002,14 @@ EOT
     $name=('&nbsp;'x(4*$i->[0])).$i->[1];
     $class=$i->[2];
     if ($AvailHiRes) {
-     $value1=formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lbanner'.$i->[3]}/$Stats{$i->[3]},1).' '.
-             formatTimeInterval($Stats{$i->[3]}==0 ? 0 : ($Stats{'lmin'.$i->[3]}+$Stats{'lmax'.$i->[3]})/(2*$Stats{$i->[3]}),1).' ('.
-             formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lmin'.$i->[3]}/$Stats{$i->[3]},1).'&nbsp;-&nbsp;'.
-             formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lmax'.$i->[3]}/$Stats{$i->[3]},1).')';
-     $value2=formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lbanner'.$i->[3]}/$AllStats{$i->[3]},1).' '.
-             formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : ($AllStats{'lmin'.$i->[3]}+$AllStats{'lmax'.$i->[3]})/(2*$AllStats{$i->[3]}),1).' ('.
-             formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lmin'.$i->[3]}/$AllStats{$i->[3]},1).'&nbsp;-&nbsp;'.
-             formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lmax'.$i->[3]}/$AllStats{$i->[3]},1).')';
+     $value1=formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lbanner'.$i->[3]}/$Stats{$i->[3]},1).' ttfb / '.
+             formatTimeInterval($Stats{$i->[3]}==0 ? 0 : ($Stats{'lmin'.$i->[3]}+$Stats{'lmax'.$i->[3]})/(2*$Stats{$i->[3]}),1).' '.
+         '('.formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lmin'.$i->[3]}/$Stats{$i->[3]},1).'&nbsp;-&nbsp;'.
+             formatTimeInterval($Stats{$i->[3]}==0 ? 0 : $Stats{'lmax'.$i->[3]}/$Stats{$i->[3]},1).') avg';
+     $value2=formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lbanner'.$i->[3]}/$AllStats{$i->[3]},1).' ttfb / '.
+             formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : ($AllStats{'lmin'.$i->[3]}+$AllStats{'lmax'.$i->[3]})/(2*$AllStats{$i->[3]}),1).' '.
+         '('.formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lmin'.$i->[3]}/$AllStats{$i->[3]},1).'&nbsp;-&nbsp;'.
+             formatTimeInterval($AllStats{$i->[3]}==0 ? 0 : $AllStats{'lmax'.$i->[3]}/$AllStats{$i->[3]},1).') avg';
     } else {
      $value1='n/a';
      $value2='n/a';
