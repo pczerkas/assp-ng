@@ -1473,10 +1473,10 @@ sub getLine {
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
    headerWrap($this->{rcvd}); # wrap long lines
    # early (pre-mailfrom) checks, optimize checkRWL() position
-   $doHelo=$ValidateHelo && $HeloPosition==1;
+   $doHelo=needHelo($fh) && $HeloPosition==1;
    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
    if ($doHelo && !($HeloExtra & 4)) {
-    return call('L1',checkRWL($fh)); L1:
+    return call('L1',checkRWL($fh)) if needRWL($fh); L1:
     unless ($this->{rwlok}) {
      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
     }
@@ -1508,10 +1508,10 @@ sub getLine {
    }
    # early (pre-rcpt) checks, optimize checkRWL() position
    $doRateLimit=$EnableRateLimit && $RateLimitPosition==3 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 1)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doHelo=$ValidateHelo && $HeloPosition==2 && (($HeloExtra & 1) || !($this->{noprocessing} & 1)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSender=$ValidateSender && $SenderPosition==1 && (($SenderExtra & 1) || !($this->{noprocessing} & 1)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==1 && (($SPFExtra & 1) || !($this->{noprocessing} & 1)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==3 && (($RBLExtra & 1) || !($this->{noprocessing} & 1)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doHelo=needHelo($fh) && $HeloPosition==2 && (($HeloExtra & 1) || !($this->{noprocessing} & 1)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSender=needSender($fh) && $SenderPosition==1 && (($SenderExtra & 1) || !($this->{noprocessing} & 1)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSPF=needSPF($fh) && $SPFPosition==1 && (($SPFExtra & 1) || !($this->{noprocessing} & 1)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doRBL=needRBL($fh) && $RBLPosition==3 && (($RBLExtra & 1) || !($this->{noprocessing} & 1)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
    return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
    return if $doSender && ($SenderExtra & 4) && checkSender($fh)<0;
@@ -1522,7 +1522,7 @@ sub getLine {
        $doSender && !($SenderExtra & 4) ||
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L3',checkRWL($fh)); L3:
+    return call('L3',checkRWL($fh)) if needRWL($fh); L3:
     # update some Sender Stats
     if ($SenderPosition==1 && !($SenderExtra & 4)) {
      if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
@@ -1688,10 +1688,10 @@ sub getLine {
    }
    # normal (pre-data) checks, optimize checkRWL() position
    $doRateLimit=$EnableRateLimit && $RateLimitPosition==4 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 3)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doHelo=$ValidateHelo && $HeloPosition==3 && (($HeloExtra & 1) || !($this->{noprocessing} & 3)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSender=$ValidateSender && $SenderPosition==2 && (($SenderExtra & 1) || !($this->{noprocessing} & 3)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==2 && (($SPFExtra & 1) || !($this->{noprocessing} & 3)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==4 && (($RBLExtra & 1) || !($this->{noprocessing} & 3)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doHelo=needHelo($fh) && $HeloPosition==3 && (($HeloExtra & 1) || !($this->{noprocessing} & 3)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSender=needSender($fh) && $SenderPosition==2 && (($SenderExtra & 1) || !($this->{noprocessing} & 3)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doSPF=needSPF($fh) && $SPFPosition==2 && (($SPFExtra & 1) || !($this->{noprocessing} & 3)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+   $doRBL=needRBL($fh) && $RBLPosition==4 && (($RBLExtra & 1) || !($this->{noprocessing} & 3)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
    return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -1702,7 +1702,7 @@ sub getLine {
        $doSender && !($SenderExtra & 4) ||
        $doSPF && !($SPFExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L6',checkRWL($fh)); L6:
+    return call('L6',checkRWL($fh)) if needRWL($fh); L6:
     # update some Sender Stats
     if ($SenderPosition==2 && !($SenderExtra & 4)) {
      if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
@@ -1839,11 +1839,11 @@ sub preHeader {
   # to RateLimit Spamlovers, optimize checkRWL() position
   # for checkLine() and checkHeader()
   $doRateLimit=$EnableRateLimit && (($RateLimitExtra & 1) || !($this->{noprocessing})) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-  $doMsgVerify=(($MsgVerifyExtra & 1) || !($this->{noprocessing})) && (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
+  $doMsgVerify=$EnableMsgVerify && (($MsgVerifyExtra & 1) || !($this->{noprocessing})) && (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
   checkRateLimitBlock($fh,1) if $doRateLimit && ($RateLimitExtra & 4);
   if ($doRateLimit && !($RateLimitExtra & 4) ||
       $doMsgVerify && !($MsgVerifyExtra & 4)) {
-   return call('L1',checkRWL($fh)); L1:
+   return call('L1',checkRWL($fh)) if needRWL($fh); L1:
    unless ($this->{rwlok}) {
     checkRateLimitBlock($fh,1) if $doRateLimit && !($RateLimitExtra & 4);
    }
@@ -1959,10 +1959,10 @@ sub npHeaderExec {
    $Stats{senderUnprocessed}++;
   }
   # late (post-header) checks
-  return if $ValidateHelo && $HeloPosition==4 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-  return if $ValidateSender && $SenderPosition==3 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-  checkSPF($fh,$this->{allLoveSPFSpam}) if $CanUseSPF && $ValidateSPF && $SPFPosition==3 && ($SPFExtra & 1);
-  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $CanUseRBL && $ValidateRBL && $RBLPosition==5 && ($RBLExtra & 1); L1:
+  return if needHelo($fh) && $HeloPosition==4 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+  return if needSender($fh) && $SenderPosition==3 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+  checkSPF($fh,$this->{allLoveSPFSpam}) if needSPF($fh) && $SPFPosition==3 && ($SPFExtra & 1);
+  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if needRBL($fh) && $RBLPosition==5 && ($RBLExtra & 1); L1:
   checkHeader($fh) if $MsgVerifyExtra & 1;
   if ($l=~/^\.(?:\015\012)?$/) {
    return call('L2',npBodyDone($fh,1)); L2:
@@ -1988,10 +1988,10 @@ sub wlHeaderExec {
    $Stats{senderWhitelisted}++;
   }
   # late (post-header) checks, optimize checkRWL() position
-  $doHelo=$ValidateHelo && $HeloPosition==4;
-  $doSender=$ValidateSender && $SenderPosition==3;
-  $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==3;
-  $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==5;
+  $doHelo=needHelo($fh) && $HeloPosition==4;
+  $doSender=needSender($fh) && $SenderPosition==3;
+  $doSPF=needSPF($fh) && $SPFPosition==3;
+  $doRBL=needRBL($fh) && $RBLPosition==5;
   return if $doHelo && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
   return if $doSender && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
   checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 6)==6;
@@ -2000,7 +2000,7 @@ sub wlHeaderExec {
       $doSender && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
       $doSPF && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
       $doRBL && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
-   return call('L2',checkRWL($fh)); L2:
+   return call('L2',checkRWL($fh)) if needRWL($fh); L2:
    # update some Sender Stats
    if ($SenderPosition==3 && (($SenderExtra & 2) && $this->{rwlok} || ($SenderExtra & 4) && !$this->{rwlok})) {
     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
@@ -2031,10 +2031,10 @@ sub getHeaderExec {
  },sub{&jump;
   $this=$Con{$fh};
   # late (post-header) checks, optimize checkRWL() position
-  $doHelo=$ValidateHelo && $HeloPosition==4;
-  $doSender=$ValidateSender && $SenderPosition==3;
-  $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==3;
-  $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==5;
+  $doHelo=needHelo($fh) && $HeloPosition==4;
+  $doSender=needSender($fh) && $SenderPosition==3;
+  $doSPF=needSPF($fh) && $SPFPosition==3;
+  $doRBL=needRBL($fh) && $RBLPosition==5;
   checkBlacklist($fh);
   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2046,7 +2046,7 @@ sub getHeaderExec {
       $doSender && !($SenderExtra & 4) ||
       $doSPF && !($SPFExtra & 4) ||
       $doRBL && !($RBLExtra & 4)) {
-   return call('L2',checkRWL($fh)); L2:
+   return call('L2',checkRWL($fh)) if needRWL($fh); L2:
    # update some Sender Stats
    if ($SenderPosition==3 && !($SenderExtra & 4) && $this->{rwlok}) {
     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
@@ -2085,12 +2085,12 @@ sub npBody {
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    # late (post-body) checks
-   return if $ValidateHelo && $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-   return if $ValidateSender && $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-   checkSPF($fh,$this->{allLoveSPFSpam}) if $CanUseSPF && $ValidateSPF && $SPFPosition==4 && ($SPFExtra & 1);
-   return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $CanUseRBL && $ValidateRBL && $RBLPosition==6 && ($RBLExtra & 1); L2:
+   return if needHelo($fh) && $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   return if needSender($fh) && $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
+   checkSPF($fh,$this->{allLoveSPFSpam}) if needSPF($fh) && $SPFPosition==4 && ($SPFExtra & 1);
+   return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if needRBL($fh) && $RBLPosition==6 && ($RBLExtra & 1); L2:
    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   return call('L3',checkURIBL($fh)) if $CanUseURIBL && $ValidateURIBL && $URIBLExtra & 1; L3:
+   return call('L3',checkURIBL($fh)) if needURIBL($fh) && $URIBLExtra & 1; L3:
    return call('L4',npBodyDone($fh,$done)); L4:
   }
  }];
@@ -2118,11 +2118,11 @@ sub whiteBody {
     mlogCond($fh,"body matches npLwlRe: '$^R'",$RELog);
     $this->{noprocessing}|=32;
    }
-   $doHelo=$ValidateHelo && $HeloPosition==5;
-   $doSender=$ValidateSender && $SenderPosition==4;
-   $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==4;
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==6;
-   $doURIBL=$CanUseURIBL && $ValidateURIBL;
+   $doHelo=needHelo($fh) && $HeloPosition==5;
+   $doSender=needSender($fh) && $SenderPosition==4;
+   $doSPF=needSPF($fh) && $SPFPosition==4;
+   $doRBL=needRBL($fh) && $RBLPosition==6;
+   $doURIBL=needURIBL($fh);
    if ($this->{noprocessing}) {
     # late (post-body) checks
     return if $doHelo && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
@@ -2142,7 +2142,7 @@ sub whiteBody {
         $doSender && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
         $doSPF && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
         $doRBL && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
-     return call('L6',checkRWL($fh)); L6:
+     return call('L6',checkRWL($fh)) if needRWL($fh); L6:
      # update some Sender Stats
      if ($SenderPosition==4 && (($SenderExtra & 2) && $this->{rwlok} || ($SenderExtra & 4) && !$this->{rwlok})) {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
@@ -2157,7 +2157,7 @@ sub whiteBody {
     checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
     return call('L8',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 6)==6; L8:
     if ($doURIBL && (($URIBLExtra & 6)==2 || ($URIBLExtra & 6)==4)) {
-     return call('L9',checkRWL($fh)); L9:
+     return call('L9',checkRWL($fh)) if needRWL($fh); L9:
      return call('L10',checkURIBL($fh)) if $doURIBL && (($URIBLExtra & 2) && !$this->{rwlok} || ($URIBLExtra & 4) && $this->{rwlok}); L10:
     }
     return call('L11',whiteBodyDone($fh,$done)); L11:
@@ -2186,11 +2186,11 @@ sub getBody {
     mlogCond($fh,"body matches npRe: '$^R'",$RELog);
     $this->{noprocessing}|=8;
    }
-   $doHelo=$ValidateHelo && $HeloPosition==5;
-   $doSender=$ValidateSender && $SenderPosition==4;
-   $doSPF=$CanUseSPF && $ValidateSPF && $SPFPosition==4;
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==6;
-   $doURIBL=$CanUseURIBL && $ValidateURIBL;
+   $doHelo=needHelo($fh) && $HeloPosition==5;
+   $doSender=needSender($fh) && $SenderPosition==4;
+   $doSPF=needSPF($fh) && $SPFPosition==4;
+   $doRBL=needRBL($fh) && $RBLPosition==6;
+   $doURIBL=needURIBL($fh);
    if ($this->{noprocessing}) {
     # late (post-body) checks
     return if $doHelo && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
@@ -2210,7 +2210,7 @@ sub getBody {
         $doSender && !($SenderExtra & 4) ||
         $doSPF && !($SPFExtra & 4) ||
         $doRBL && !($RBLExtra & 4)) {
-     return call('L6',checkRWL($fh)); L6:
+     return call('L6',checkRWL($fh)) if needRWL($fh); L6:
      # update some Sender Stats
      if ($SenderPosition==4 && !($SenderExtra & 4) && $this->{rwlok}) {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
@@ -2229,7 +2229,7 @@ sub getBody {
     checkAttach($fh,'(external)',$BlockExes,$extAttachColl);
     return call('L8',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 4); L8:
     if ($doURIBL && !($URIBLExtra & 4)) {
-     return call('L9',checkRWL($fh)); L9:
+     return call('L9',checkRWL($fh)) if needRWL($fh); L9:
      unless ($this->{rwlok}) {
       return call('L10',checkURIBL($fh)) if $doURIBL && !($URIBLExtra & 4); L10:
      }
@@ -2521,7 +2521,7 @@ sub continueBody {
  },sub{&jump;
   $this=$Con{$fh};
 
-  $this->{skipcheckLine}||=($MsgVerifyExtra & 1) && $this->{noprocessing} ||
+  $this->{skipcheckLine}||=!($MsgVerifyExtra & 1) && $this->{noprocessing} ||
 
    !$MsgVerifyWL && $this->{white};
 
@@ -2719,12 +2719,12 @@ sub reply {
 
    # early (on-connect) checks, optimize checkRWL() position
    $doRateLimit=$EnableRateLimit && $RateLimitPosition==1;
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==1;
+   $doRBL=needRBL($client) && $RBLPosition==1;
    return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
    return call('L1',checkRBL($client)) if $doRBL && ($RBLExtra & 4); L1:
    if ($doRateLimit && !($RateLimitExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L2',checkRWL($client)); L2:
+    return call('L2',checkRWL($client)) if needRWL($client); L2:
     unless ($Con{$client}->{rwlok}) {
      return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
      return call('L3',checkRBL($client)) if $doRBL && !($RBLExtra & 4); L3:
@@ -2768,12 +2768,12 @@ sub reply {
 
    # early (pre-banner) checks, optimize checkRWL() position
    $doRateLimit=$EnableRateLimit && $RateLimitPosition==2;
-   $doRBL=$CanUseRBL && $ValidateRBL && $RBLPosition==2;
+   $doRBL=needRBL($client) && $RBLPosition==2;
    return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
    return call('L5',checkRBL($client)) if $doRBL && ($RBLExtra & 4); L5:
    if ($doRateLimit && !($RateLimitExtra & 4) ||
        $doRBL && !($RBLExtra & 4)) {
-    return call('L6',checkRWL($client)); L6:
+    return call('L6',checkRWL($client)) if needRWL($client); L6:
     unless ($Con{$client}->{rwlok}) {
      return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
      return call('L7',checkRBL($client)) if $doRBL && !($RBLExtra & 4); L7:
@@ -3071,11 +3071,16 @@ sub checkEmailInterface {
  return 0;
 }
 
+sub needHelo {
+ return 0 unless $ValidateHelo;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 sub checkHelo {
  my ($fh,$spamlover)=@_;
  my $this=$Con{$fh};
- return if $this->{relayok} || $this->{mISPRE};
-## return unless $ValidateHelo;
  my $result=1;
  if (@{$this->{Helocache}}) {
   ($result)=@{$this->{Helocache}};
@@ -3159,12 +3164,17 @@ sub checkHelo {
  return $result;
 }
 
+sub needSender {
+ return 0 unless $ValidateSender;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 sub checkSender {
  my ($fh,$spamlover)=@_;
- my $this=$Con{$fh};
- return 1 if $this->{relayok} || $this->{mISPRE};
-## return 1 unless $ValidateSender;
  return 1 unless checkNeeded($fh,$mfFailColl,$mfTestMode,$spamlover);
+ my $this=$Con{$fh};
  my $result=1;
  if (@{$this->{Sendercache}}) {
   ($result)=@{$this->{Sendercache}};
@@ -3262,12 +3272,17 @@ sub checkSRSBounce {
  thisIsSpam($fh,'not SRS signed',$SRSBounceError,$srsTestMode,$this->{allLoveSRSSpam},$SRSFailColl,'msgNoSRSBounce',1);
 }
 
+sub needSPF {
+ return 0 unless $CanUseSPF && $ValidateSPF;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 # do SPF (sender policy framework) checks
 sub checkSPF {
  my ($fh,$spamlover)=@_;
  my $this=$Con{$fh};
- return if $this->{relayok} || $this->{mISPRE};
-## return unless $CanUseSPF && $ValidateSPF;
  my ($per_result,$smtp_comment);
  if (@{$this->{SPFcache}}) {
   ($per_result,$smtp_comment)=@{$this->{SPFcache}};
@@ -3336,6 +3351,13 @@ sub checkSPF {
  }
 }
 
+sub needRWL {
+ return 0 unless $CanUseRWL && $ValidateRWL;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 # do RWL checks
 sub checkRWL {
  my $fh;
@@ -3344,8 +3366,6 @@ sub checkRWL {
   $fh=shift;
  },sub{&jump;
   $this=$Con{$fh};
-  return if $this->{relayok} || $this->{mISPRE};
-  return unless $CanUseRWL && $ValidateRWL;
   ($rwls_returned,@listed_by)=();
   if (@{$this->{RWLcache}}) {
    ($rwls_returned,@listed_by)=@{$this->{RWLcache}};
@@ -3403,6 +3423,13 @@ sub checkRWL {
  return $sref->[1];
 }
 
+sub needRBL {
+ return 0 unless $CanUseRBL && $ValidateRBL;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 # do RBL checks
 sub checkRBL {
  my ($fh,$spamlover);
@@ -3411,8 +3438,6 @@ sub checkRBL {
   ($fh,$spamlover)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return if $this->{relayok} || $this->{mISPRE};
-##  return unless $CanUseRBL && $ValidateRBL;
   ($rbls_returned,@listed_by)=();
   if (@{$this->{RBLcache}}) {
    ($rbls_returned,@listed_by)=@{$this->{RBLcache}};
@@ -3872,6 +3897,13 @@ sub checkAttach {
  $this->{checkedattach}='no bad attachments';
 }
 
+sub needURIBL {
+ return 0 unless $CanUseURIBL && $ValidateURIBL;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 # do URIBL checks
 sub checkURIBL {
  my $fh;
@@ -3881,8 +3913,6 @@ sub checkURIBL {
   $fh=shift;
  },sub{&jump;
   $this=$Con{$fh};
-  return if $this->{relayok} || $this->{mISPRE};
-##  return unless $CanUseURIBL && $ValidateURIBL;
   unless (checkNeeded($fh,$URIBLFailColl,$uriblTestMode,$this->{allLoveURIBLSpam})) {
    mlogCond($fh,"URIBL lookup skipped (unnecessary)",$RBLLog);
    return;
