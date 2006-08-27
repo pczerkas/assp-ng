@@ -37,7 +37,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
 
 @News=('smtpAuthServer','SMTPreadtimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay','GreetDelayError',
        'ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
-       'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','SenderBomb','noSenderCheck',
+       'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
        'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','SPFExtra','noSPF','SPFError',
        'ValidateRWL','AddRWLHeader','RWLServiceProvider','RWLmaxreplies','RWLminhits','RWLmaxtime','noRWL',
@@ -4389,11 +4389,6 @@ $mean_html
           <td class="statsValue negative">$AllStats{senderForged}</td>
         </tr>
         <tr>
-          <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;BombRe Senders:</b></td>
-          <td class="statsValue negative">$Stats{senderBombLocal}</td>
-          <td class="statsValue negative">$AllStats{senderBombLocal}</td>
-        </tr>
-        <tr>
           <td class="statsTitle"><b>Remote Senders Rejected:</b></td>
           <td class="statsValue negative">$tots{senderRejectedRemote}</td>
           <td class="statsValue negative">$tots{senderRejectedRemote2}</td>
@@ -4402,11 +4397,6 @@ $mean_html
           <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;Nonexistent MX Senders:</b></td>
           <td class="statsValue negative">$Stats{senderNoMX}</td>
           <td class="statsValue negative">$AllStats{senderNoMX}</td>
-        </tr>
-        <tr>
-          <td class="statsTitle"><b>&nbsp;&nbsp;&nbsp;&nbsp;BombRe Senders:</b></td>
-          <td class="statsValue negative">$Stats{senderBombRemote}</td>
-          <td class="statsValue negative">$AllStats{senderBombRemote}</td>
         </tr>
       </tbody>
       <tbody>

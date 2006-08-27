@@ -452,7 +452,7 @@ sub RLIBTEventEnabled {
  my $name=shift;
  $name=~s/^RLIBT(.*)/$1/;
  return 0 if !$RateLimitClient && $name=~/^(?:clientHeloValidated|clientHeloUnchecked|clientHeloForged|clientHeloBlacklisted|clientHeloMismatch|clientHeloSpam)$/;
- return 0 if !$RateLimitSender && $name=~/^(?:senderValidatedLocal|senderUncheckedLocal|senderWhitelisted|senderValidatedRemote|senderUncheckedRemote|senderUnprocessed|senderForged|senderBombLocal|senderNoMX|senderBombRemote)$/;
+ return 0 if !$RateLimitSender && $name=~/^(?:senderValidatedLocal|senderUncheckedLocal|senderWhitelisted|senderValidatedRemote|senderUncheckedRemote|senderUnprocessed|senderForged|senderNoMX)$/;
  return 0 if !$RateLimitRcpt && $name=~/^(?:rcptValidated|rcptUnchecked|rcptSpamLover|rcptWhitelisted|rcptNotWhitelisted|rcptUnprocessed|rcptDelayed|rcptDelayedLate|rcptDelayedExpired|rcptEmbargoed|rcptSpamBucket)$/;
  return 0 if !$RateLimitPassed && $name=~/^(?:msgAnyHam|msgAnyPassedSpam|noprocessing|locals|whites|reds|bhams|spamlover|testspams)$/;
  return 0 if !$RateLimitBlocked && $name=~/^(?:msgAnyBlockedSpam|helolisted|senderfails|blacklisted|msgNoSRSBounce|spambucket|spffails|rblfails|malformed|uriblfails|bombs|scripts|viri|viridetected|bspams)$/;
