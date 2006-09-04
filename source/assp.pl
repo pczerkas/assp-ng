@@ -1452,8 +1452,7 @@ sub stateReset {
 # a line of input has been received from the smtp client
 sub getLine {
  my ($fh,$l);
- my ($this,$server,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply);
- my ($doRateLimit,$doHelo,$doSender,$doSPF,$doRBL);
+ my ($this,$server,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply,$np,$wl);
  my $sref=$Tasks{$CurTaskID}->{getLine}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -1472,14 +1471,10 @@ sub getLine {
    $this->{helo}=$1;
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
    headerWrap($this->{rcvd}); # wrap long lines
-   # early (pre-mailfrom) checks, optimize checkRWL() position
-   $doHelo=needHelo($fh) && $HeloPosition==1;
-   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
-   if ($doHelo && !($HeloExtra & 4)) {
-    return call('L1',checkRWL($fh)) if needRWL($fh); L1:
-    unless ($this->{rwlok}) {
-     return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
-    }
+   # early (pre-mailfrom) checks
+   if (needHeloCheck($fh,1)) {
+    return call('L1',needExtraCheck($fh,$HeloExtra)); L1:
+    return if (shift) && checkHelo($fh)<0;
    }
    return if checkNonLate($fh,0)<0;
    # for testing
@@ -1494,54 +1489,41 @@ sub getLine {
    $this->{mNBSRE}=matchSL($this->{mailfrom},'noBombScript');
    $this->{mWLDRE}=$this->{mailfrom}=~$WLDRE;
    $this->{isbounce}=$this->{mailfrom}=~$BSRE;
-   # update some Sender Stats
-   if ($SenderPosition==1 && ($SenderExtra & 4)) {
-    if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
-     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-     $Stats{senderUnprocessed}++;
-    } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE})) {
-     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-     $Stats{senderWhitelisted}++;
-    }
+   # early (pre-rcpt) checks
+   $np=$this->{noprocessing} & 1;
+   $wl=$this->{mailfromonwl} || $this->{mWLDRE};
+   if (needRateLimitBlockCheck($fh,3)) {
+    return call('L2',needExtraCheck($fh,$RateLimitExtra,$np,$wl)); L2:
+    return if (shift) && checkRateLimitBlock($fh,0)<0;
    }
-   # early (pre-rcpt) checks, optimize checkRWL() position
-   $doRateLimit=$EnableRateLimit && $RateLimitPosition==3 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 1)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doHelo=needHelo($fh) && $HeloPosition==2 && (($HeloExtra & 1) || !($this->{noprocessing} & 1)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSender=needSender($fh) && $SenderPosition==1 && (($SenderExtra & 1) || !($this->{noprocessing} & 1)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSPF=needSPF($fh) && $SPFPosition==1 && (($SPFExtra & 1) || !($this->{noprocessing} & 1)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doRBL=needRBL($fh) && $RBLPosition==3 && (($RBLExtra & 1) || !($this->{noprocessing} & 1)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
-   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh)<0;
-   return if $doSender && ($SenderExtra & 4) && checkSender($fh)<0;
-   checkSPF($fh) if $doSPF && ($SPFExtra & 4);
-   return call('L2',checkRBL($fh)) if $doRBL && ($RBLExtra & 4); L2:
-   if ($doRateLimit && !($RateLimitExtra & 4) ||
-       $doHelo && !($HeloExtra & 4) ||
-       $doSender && !($SenderExtra & 4) ||
-       $doSPF && !($SPFExtra & 4) ||
-       $doRBL && !($RBLExtra & 4)) {
-    return call('L3',checkRWL($fh)) if needRWL($fh); L3:
-    # update some Sender Stats
-    if ($SenderPosition==1 && !($SenderExtra & 4)) {
-     if (!($SenderExtra & 1) && ($this->{noprocessing} & 1)) {
+   if (needHeloCheck($fh,2)) {
+    return call('L3',needExtraCheck($fh,$HeloExtra,$np,$wl)); L3:
+    return if (shift) && checkHelo($fh)<0;
+   }
+   if (needSenderCheck($fh,1)) {
+    return call('L4',needExtraCheck($fh,$SenderExtra,$np,$wl)); L4:
+    if (shift) {
+     return if checkSender($fh)<0;
+    } else {
+     # update some Sender Stats
+     if (!($SenderExtra & 1) && $np) {
       mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
       $Stats{senderUnprocessed}++;
-     } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE}) || $this->{rwlok}) {
+     } else {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
       $Stats{senderWhitelisted}++;
      }
     }
-    unless ($this->{rwlok}) {
-     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,0)<0;
-     return if $doHelo && !($HeloExtra & 4) && checkHelo($fh)<0;
-     return if $doSender && !($SenderExtra & 4) && checkSender($fh)<0;
-     checkSPF($fh) if $doSPF && !($SPFExtra & 4);
-     return call('L4',checkRBL($fh)) if $doRBL && !($RBLExtra & 4); L4:
-    }
+   }
+   if (needSPFCheck($fh,1)) {
+    return call('L5',needExtraCheck($fh,$SPFExtra,$np,$wl)); L5:
+    checkSPF($fh) if (shift);
+   }
+   if (needRBLCheck($fh,3)) {
+    return call('L6',needExtraCheck($fh,$RBLExtra,$np,$wl)); L6:
+    return call('L7',checkRBL($fh)) if (shift); L7:
    }
    return if checkNonLate($fh,0)<0;
    # rewrite sender address when relaying through Relay Host
@@ -1674,54 +1656,41 @@ sub getLine {
    $this->{addressedToSpamBucket}=1 if $rcptlocal && matchSL("$u$h",'spamaddresses');
    checkSpamLover($fh,"$u$h",$rcptlocal);
    return if checkEmailInterface($fh,$u,$rcptlocal)<0;
-   # update some Sender Stats
-   if ($SenderPosition==2 && ($SenderExtra & 4)) {
-    if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
-     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-     $Stats{senderUnprocessed}++;
-    } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE})) {
-     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-     $Stats{senderWhitelisted}++;
-    }
+   # normal (pre-data) checks
+   $np=$this->{noprocessing} & 3;
+   $wl=$this->{mailfromonwl} || $this->{mWLDRE};
+   if (needRateLimitBlockCheck($fh,4)) {
+    return call('L8',needExtraCheck($fh,$RateLimitExtra,$np,$wl)); L8:
+    return if (shift) && checkRateLimitBlock($fh,1)<0;
    }
-   # normal (pre-data) checks, optimize checkRWL() position
-   $doRateLimit=$EnableRateLimit && $RateLimitPosition==4 && (($RateLimitExtra & 1) || !($this->{noprocessing} & 3)) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doHelo=needHelo($fh) && $HeloPosition==3 && (($HeloExtra & 1) || !($this->{noprocessing} & 3)) && (($HeloExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSender=needSender($fh) && $SenderPosition==2 && (($SenderExtra & 1) || !($this->{noprocessing} & 3)) && (($SenderExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doSPF=needSPF($fh) && $SPFPosition==2 && (($SPFExtra & 1) || !($this->{noprocessing} & 3)) && (($SPFExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   $doRBL=needRBL($fh) && $RBLPosition==4 && (($RBLExtra & 1) || !($this->{noprocessing} & 3)) && (($RBLExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
-   return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-   return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-   checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 4);
-   return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L5:
-   if ($doRateLimit && !($RateLimitExtra & 4) ||
-       $doHelo && !($HeloExtra & 4) ||
-       $doSender && !($SenderExtra & 4) ||
-       $doSPF && !($SPFExtra & 4) ||
-       $doRBL && !($RBLExtra & 4)) {
-    return call('L6',checkRWL($fh)) if needRWL($fh); L6:
-    # update some Sender Stats
-    if ($SenderPosition==2 && !($SenderExtra & 4)) {
-     if (!($SenderExtra & 1) && ($this->{noprocessing} & 3)) {
+   if (needHeloCheck($fh,3)) {
+    return call('L9',needExtraCheck($fh,$HeloExtra,$np,$wl)); L9:
+    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   }
+   if (needSenderCheck($fh,2)) {
+    return call('L10',needExtraCheck($fh,$SenderExtra,$np,$wl)); L10:
+    if (shift) {
+     return if checkSender($fh,$this->{allLoveMfSpam})<0;
+    } else {
+     # update some Sender Stats
+     if (!($SenderExtra & 1) && $np) {
       mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
       $Stats{senderUnprocessed}++;
-     } elsif (!($SenderExtra & 2) && ($this->{mailfromonwl} || $this->{mWLDRE}) || $this->{rwlok}) {
+     } else {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
       $Stats{senderWhitelisted}++;
      }
     }
-    unless ($this->{rwlok}) {
-     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($fh,1)<0;
-     return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-     return if $doSender && !($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-     checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && !($SPFExtra & 4);
-     return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L7:
-    }
+   }
+   if (needSPFCheck($fh,2)) {
+    return call('L11',needExtraCheck($fh,$SPFExtra,$np,$wl)); L11:
+    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+   }
+   if (needRBLCheck($fh,4)) {
+    return call('L12',needExtraCheck($fh,$RBLExtra,$np,$wl)); L12:
+    return call('L13',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L13:
    }
    return if checkNonLate($fh,1)<0; ## ,1 fixme ??
    $this->{rcptValidated}=0;
@@ -1822,7 +1791,7 @@ sub getLine {
 
 sub preHeader {
  my ($fh,$l);
- my ($this,$doRateLimit,$doMsgVerify);
+ my ($this,$wl);
  my $sref=$Tasks{$CurTaskID}->{preHeader}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -1838,18 +1807,14 @@ sub preHeader {
   # don't check, only log RateLimited connection addressed 
   # to RateLimit Spamlovers, optimize checkRWL() position
   # for checkLine() and checkHeader()
-  $doRateLimit=$EnableRateLimit && (($RateLimitExtra & 1) || !($this->{noprocessing})) && (($RateLimitExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-  $doMsgVerify=$EnableMsgVerify && (($MsgVerifyExtra & 1) || !($this->{noprocessing})) && (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE}));
-  checkRateLimitBlock($fh,1) if $doRateLimit && ($RateLimitExtra & 4);
-  if ($doRateLimit && !($RateLimitExtra & 4) ||
-      $doMsgVerify && !($MsgVerifyExtra & 4)) {
-   return call('L1',checkRWL($fh)) if needRWL($fh); L1:
-   unless ($this->{rwlok}) {
-    checkRateLimitBlock($fh,1) if $doRateLimit && !($RateLimitExtra & 4);
-   }
+  $wl=$this->{mailfromonwl} || $this->{mWLDRE};
+  if (needRateLimitBlockCheck($fh)) {
+   return call('L1',needExtraCheck($fh,$RateLimitExtra,$this->{noprocessing},$wl)); L1:
+   checkRateLimitBlock($fh,1) if (shift);
   }
+  return call('L2',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$wl)) if $EnableMsgVerify; L2:
   # prepare ClamAV STREAM connection
-  return call('L2',prepareClamAV($fh)); L2:
+  return call('L3',prepareClamAV($fh)); L3:
   if ($this->{noprocessing}) {
    $this->{getline}=\&npHeader;
   } else {
@@ -1857,7 +1822,7 @@ sub preHeader {
   }
   $sfh=$this->{sfh};
   # conduct late (post-header) checks
-  return call('L3',$this->{getline}->($fh,$l)); L3:
+  return call('L4',$this->{getline}->($fh,$l)); L4:
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -1874,7 +1839,10 @@ sub npHeader {
   return call('L1',checkVirus($fh,$l)); L1:
   $this->{header}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if $MsgVerifyExtra & 1;
+  
+##  checkLine($fh,$l) if !$this->{skipcheckLine} && $MsgVerifyExtra & 1;
+  checkLine($fh,$l) if !$this->{skipcheckLine} && needExtraCheck($MsgVerifyExtra,1);
+
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1896,7 +1864,10 @@ sub getHeader {
   return call('L1',checkVirus($fh,$l)); L1:
   $this->{header}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE})) && (($MsgVerifyExtra & 4) || !$this->{rwlok});
+
+  ##checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE})) && (($MsgVerifyExtra & 4) || !$this->{rwlok});
+  checkLine($fh,$l) if !$this->{skipcheckLine} && needExtraCheck($MsgVerifyExtra,0,$this->{mailfromonwl} || $this->{mWLDRE},$this->{rwlok});
+
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1952,20 +1923,40 @@ sub npHeaderExec {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  # update some Sender Stats
-  if ($SenderPosition==3 && !($SenderExtra & 1)) {
-   mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-   return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-   $Stats{senderUnprocessed}++;
-  }
   # late (post-header) checks
-  return if needHelo($fh) && $HeloPosition==4 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-  return if needSender($fh) && $SenderPosition==3 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-  checkSPF($fh,$this->{allLoveSPFSpam}) if needSPF($fh) && $SPFPosition==3 && ($SPFExtra & 1);
-  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if needRBL($fh) && $RBLPosition==5 && ($RBLExtra & 1); L1:
-  checkHeader($fh) if $MsgVerifyExtra & 1;
+  if (needHeloCheck($fh,4)) {
+   return call('L1',needExtraCheck($fh,$HeloExtra,1)); L1:
+   return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+  }
+  if (needSenderCheck($fh,3)) {
+   return call('L2',needExtraCheck($fh,$SenderExtra,1)); L2:
+   if (shift) {
+    return if checkSender($fh,$this->{allLoveMfSpam})<0;
+   } else {
+    # update some Sender Stats
+    if (!($SenderExtra & 1)) {
+     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+     $Stats{senderUnprocessed}++;
+    } else {
+     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+     $Stats{senderWhitelisted}++;
+    }
+   }
+  }
+  if (needSPFCheck($fh,3)) {
+   return call('L3',needExtraCheck($fh,$SPFExtra,1)); L3:
+   checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+  }
+  if (needRBLCheck($fh,5)) {
+   return call('L4',needExtraCheck($fh,$RBLExtra,1)); L4:
+   return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
+  }
+  return call('L6',needExtraCheck($fh,$MsgVerifyExtra,1)); L6:
+  checkHeader($fh) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L2',npBodyDone($fh,1)); L2:
+   return call('L7',npBodyDone($fh,1)); L7:
   } else {
    $this->{getline}=\&npBody;
   }
@@ -1976,45 +1967,39 @@ sub npHeaderExec {
 
 sub wlHeaderExec {
  my ($fh,$l);
- my ($this,$doHelo,$doSender,$doSPF,$doRBL);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{wlHeaderExec}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  # update some Sender Stats
-  if ($SenderPosition==3 && !($SenderExtra & 6)) {
-   mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-   return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-   $Stats{senderWhitelisted}++;
+  # late (post-header) checks
+  if (needHeloCheck($fh,4)) {
+   return call('L1',needExtraCheck($fh,$HeloExtra,0,1)); L1:
+   return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   }
-  # late (post-header) checks, optimize checkRWL() position
-  $doHelo=needHelo($fh) && $HeloPosition==4;
-  $doSender=needSender($fh) && $SenderPosition==3;
-  $doSPF=needSPF($fh) && $SPFPosition==3;
-  $doRBL=needRBL($fh) && $RBLPosition==5;
-  return if $doHelo && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
-  return if $doSender && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
-  checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 6)==6;
-  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 6)==6; L1:
-  if ($doHelo && (($HeloExtra & 6)==2 || ($HeloExtra & 6)==4) ||
-      $doSender && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
-      $doSPF && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
-      $doRBL && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
-   return call('L2',checkRWL($fh)) if needRWL($fh); L2:
-   # update some Sender Stats
-   if ($SenderPosition==3 && (($SenderExtra & 2) && $this->{rwlok} || ($SenderExtra & 4) && !$this->{rwlok})) {
+  if (needSenderCheck($fh,3)) {
+   return call('L2',needExtraCheck($fh,$SenderExtra,0,1)); L2:
+   if (shift) {
+    return if checkSender($fh,$this->{allLoveMfSpam})<0;
+   } else {
+    # update some Sender Stats
     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
     $Stats{senderWhitelisted}++;
    }
-   return if $doHelo && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-   return if $doSender && (($SenderExtra & 2) && !$this->{rwlok} || ($SenderExtra & 4) && $this->{rwlok}) && checkSender($fh,$this->{allLoveMfSpam})<0;
-   checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && (($SPFExtra & 2) && !$this->{rwlok} || ($SPFExtra & 4) && $this->{rwlok});
-   return call('L3',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && (($RBLExtra & 2) && !$this->{rwlok} || ($RBLExtra & 4) && $this->{rwlok}); L3:
   }
-  checkHeader($fh) if ($MsgVerifyExtra & 6)==6 || ($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok};
+  if (needSPFCheck($fh,3)) {
+   return call('L3',needExtraCheck($fh,$SPFExtra,0,1)); L3:
+   checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+  }
+  if (needRBLCheck($fh,5)) {
+   return call('L4',needExtraCheck($fh,$RBLExtra,0,1)); L4:
+   return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
+  }
+  return call('L6',needExtraCheck($fh,$MsgVerifyExtra,0,1)); L6:
+  checkHeader($fh) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L4',whiteBodyDone($fh,1)); L4:
+   return call('L7',whiteBodyDone($fh,1)); L7:
   } else {
    $this->{getline}=\&whiteBody;
   }
@@ -2025,44 +2010,42 @@ sub wlHeaderExec {
 
 sub getHeaderExec {
  my ($fh,$l);
- my ($this,$doHelo,$doSender,$doSPF,$doRBL);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{getHeaderExec}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  # late (post-header) checks, optimize checkRWL() position
-  $doHelo=needHelo($fh) && $HeloPosition==4;
-  $doSender=needSender($fh) && $SenderPosition==3;
-  $doSPF=needSPF($fh) && $SPFPosition==3;
-  $doRBL=needRBL($fh) && $RBLPosition==5;
+  # late (post-header) checks
   checkBlacklist($fh);
-  return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-  return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-  checkSpamBucket($fh);
-  checkSRSBounce($fh);
-  checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 4);
-  return call('L1',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L1:
-  if ($doHelo && !($HeloExtra & 4) ||
-      $doSender && !($SenderExtra & 4) ||
-      $doSPF && !($SPFExtra & 4) ||
-      $doRBL && !($RBLExtra & 4)) {
-   return call('L2',checkRWL($fh)) if needRWL($fh); L2:
-   # update some Sender Stats
-   if ($SenderPosition==3 && !($SenderExtra & 4) && $this->{rwlok}) {
+  if (needHeloCheck($fh,4)) {
+   return call('L1',needExtraCheck($fh,$HeloExtra)); L1:
+   return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+  }
+  if (needSenderCheck($fh,3)) {
+   return call('L2',needExtraCheck($fh,$SenderExtra)); L2:
+   if (shift) {
+    return if checkSender($fh,$this->{allLoveMfSpam})<0;
+   } else {
+    # update some Sender Stats
     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
     $Stats{senderWhitelisted}++;
    }
-   unless ($this->{rwlok}) {
-    return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $doSender && !($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && !($SPFExtra & 4);
-    return call('L3',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L3:
-   }
   }
-  checkHeader($fh) if ($MsgVerifyExtra & 4) || !$this->{rwlok};
+  checkSpamBucket($fh);
+  checkSRSBounce($fh);
+  if (needSPFCheck($fh,3)) {
+   return call('L3',needExtraCheck($fh,$SPFExtra)); L3:
+   checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+  }
+  if (needRBLCheck($fh,5)) {
+   return call('L4',needExtraCheck($fh,$RBLExtra)); L4:
+   return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
+  }
+  return call('L6',needExtraCheck($fh,$MsgVerifyExtra)); L6:
+  checkHeader($fh) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {   
-   return call('L4',getBodyDone($fh,1)); L4:
+   return call('L7',getBodyDone($fh,1)); L7:
   } else {
    $this->{getline}=\&getBody;
   }
@@ -2081,17 +2064,41 @@ sub npBody {
   return call('L1',checkVirus($fh,$l)); L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if $MsgVerifyExtra & 1;
+  checkLine($fh,$l) if !$this->{skipcheckLine} && $MsgVerifyExtra & 1;
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    # late (post-body) checks
-   return if needHelo($fh) && $HeloPosition==5 && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-   return if needSender($fh) && $SenderPosition==4 && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-   checkSPF($fh,$this->{allLoveSPFSpam}) if needSPF($fh) && $SPFPosition==4 && ($SPFExtra & 1);
-   return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if needRBL($fh) && $RBLPosition==6 && ($RBLExtra & 1); L2:
+   if (needHeloCheck($fh,5)) {
+    return call('L2',needExtraCheck($fh,$HeloExtra,1)); L2:
+    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   }
+   if (needSenderCheck($fh,4)) {
+    return call('L3',needExtraCheck($fh,$SenderExtra,1)); L3:
+    if (shift) {
+     return if checkSender($fh,$this->{allLoveMfSpam})<0;
+    } else {
+     # update some Sender Stats
+     unless ($SenderExtra & 1) {
+      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+      $Stats{senderUnprocessed}++;
+     }
+    }
+   }
+   if (needSPFCheck($fh,4)) {
+    return call('L4',needExtraCheck($fh,$SPFExtra,1)); L4:
+    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+   }
+   if (needRBLCheck($fh,6)) {
+    return call('L5',needExtraCheck($fh,$RBLExtra,1)); L5:
+    return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
+   }
    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   return call('L3',checkURIBL($fh)) if needURIBL($fh) && $URIBLExtra & 1; L3:
-   return call('L4',npBodyDone($fh,$done)); L4:
+   if (needURIBLCheck($fh)) {
+    return call('L7',needExtraCheck($fh,$URIBLExtra,1)); L7:
+    return call('L8',checkURIBL($fh)) if (shift); L8:
+   }
+   return call('L9',npBodyDone($fh,$done)); L9:
   }
  }];
  &{$sref->[0]};
@@ -2100,7 +2107,7 @@ sub npBody {
 
 sub whiteBody {
  my ($fh,$l);
- my ($this,$done,$doHelo,$doSender,$doSPF,$doRBL,$doURIBL);
+ my ($this,$done);
  my $sref=$Tasks{$CurTaskID}->{whiteBody}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -2108,7 +2115,7 @@ sub whiteBody {
   return call('L1',checkVirus($fh,$l)); L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if ($MsgVerifyExtra & 6)==6 || ($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok};
+  checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 6)==6 || ($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok});
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
@@ -2118,49 +2125,49 @@ sub whiteBody {
     mlogCond($fh,"body matches npLwlRe: '$^R'",$RELog);
     $this->{noprocessing}|=32;
    }
-   $doHelo=needHelo($fh) && $HeloPosition==5;
-   $doSender=needSender($fh) && $SenderPosition==4;
-   $doSPF=needSPF($fh) && $SPFPosition==4;
-   $doRBL=needRBL($fh) && $RBLPosition==6;
-   $doURIBL=needURIBL($fh);
-   if ($this->{noprocessing}) {
-    # late (post-body) checks
-    return if $doHelo && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $doSender && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 1);
-    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 1); L2:
-    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L3',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 1); L3:
-    return call('L4',npBodyDone($fh,$done)); L4:
-   } else {
-    # late (post-body) checks, optimize checkRWL() position
-    return if $doHelo && ($HeloExtra & 6)==6 && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $doSender && ($SenderExtra & 6)==6 && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 6)==6;
-    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 6)==6; L5:
-    if ($doHelo && (($HeloExtra & 6)==2 || ($HeloExtra & 6)==4) ||
-        $doSender && (($SenderExtra & 6)==2 || ($SenderExtra & 6)==4) ||
-        $doSPF && (($SPFExtra & 6)==2 || ($SPFExtra & 6)==4) ||
-        $doRBL && (($RBLExtra & 6)==2 || ($RBLExtra & 6)==4)) {
-     return call('L6',checkRWL($fh)) if needRWL($fh); L6:
+   # late (post-body) checks
+   if (needHeloCheck($fh,5)) {
+    return call('L2',needExtraCheck($fh,$HeloExtra,$this->{noprocessing},1)); L2:
+    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   }
+   if (needSenderCheck($fh,4)) {
+    return call('L3',needExtraCheck($fh,$SenderExtra,$this->{noprocessing},1)); L3:
+    if (shift) {
+     return if checkSender($fh,$this->{allLoveMfSpam})<0;
+    } else {
      # update some Sender Stats
-     if ($SenderPosition==4 && (($SenderExtra & 2) && $this->{rwlok} || ($SenderExtra & 4) && !$this->{rwlok})) {
+     if (!($SenderExtra & 1) && $this->{noprocessing}) {
+      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+      $Stats{senderUnprocessed}++;
+     } else {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
       $Stats{senderWhitelisted}++;
      }
-     return if $doHelo && (($HeloExtra & 2) && !$this->{rwlok} || ($HeloExtra & 4) && $this->{rwlok}) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-     return if $doSender && (($SenderExtra & 2) && !$this->{rwlok} || ($SenderExtra & 4) && $this->{rwlok}) && checkSender($fh,$this->{allLoveMfSpam})<0;
-     checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && (($SPFExtra & 2) && !$this->{rwlok} || ($SPFExtra & 4) && $this->{rwlok});
-     return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && (($RBLExtra & 2) && !$this->{rwlok} || ($RBLExtra & 4) && $this->{rwlok}); L7:
     }
+   }
+   if (needSPFCheck($fh,4)) {
+    return call('L4',needExtraCheck($fh,$SPFExtra,$this->{noprocessing},1)); L4:
+    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+   }
+   if (needRBLCheck($fh,6)) {
+    return call('L5',needExtraCheck($fh,$RBLExtra,$this->{noprocessing},1)); L5:
+    return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
+   }
+   if ($this->{noprocessing}) {
+    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
+   } else {
     checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
-    return call('L8',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 6)==6; L8:
-    if ($doURIBL && (($URIBLExtra & 6)==2 || ($URIBLExtra & 6)==4)) {
-     return call('L9',checkRWL($fh)) if needRWL($fh); L9:
-     return call('L10',checkURIBL($fh)) if $doURIBL && (($URIBLExtra & 2) && !$this->{rwlok} || ($URIBLExtra & 4) && $this->{rwlok}); L10:
-    }
-    return call('L11',whiteBodyDone($fh,$done)); L11:
+   }
+   if (needURIBLCheck($fh)) {
+    return call('L7',needExtraCheck($fh,$URIBLExtra,$this->{noprocessing},1)); L7:
+    return call('L8',checkURIBL($fh)) if (shift); L8:
+   }
+   if ($this->{noprocessing}) {
+    return call('L9',npBodyDone($fh,$done)); L9:
+   } else {
+    return call('L10',whiteBodyDone($fh,$done)); L10:
    }
   }
  }];
@@ -2171,7 +2178,7 @@ sub whiteBody {
 # the message may or may not be spam -- get the body and test it.
 sub getBody {
  my ($fh,$l);
- my ($this,$done,$doHelo,$doSender,$doSPF,$doRBL,$doURIBL);
+ my ($this,$done);
  my $sref=$Tasks{$CurTaskID}->{getBody}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -2179,63 +2186,59 @@ sub getBody {
   return call('L1',checkVirus($fh,$l)); L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if ($MsgVerifyExtra & 4) || !$this->{rwlok};
+  checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 4) || !$this->{rwlok});
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
     mlogCond($fh,"body matches npRe: '$^R'",$RELog);
     $this->{noprocessing}|=8;
    }
-   $doHelo=needHelo($fh) && $HeloPosition==5;
-   $doSender=needSender($fh) && $SenderPosition==4;
-   $doSPF=needSPF($fh) && $SPFPosition==4;
-   $doRBL=needRBL($fh) && $RBLPosition==6;
-   $doURIBL=needURIBL($fh);
-   if ($this->{noprocessing}) {
-    # late (post-body) checks
-    return if $doHelo && ($HeloExtra & 1) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $doSender && ($SenderExtra & 1) && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 1);
-    return call('L2',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 1); L2:
-    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-    return call('L3',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 1); L3:
-    return call('L4',npBodyDone($fh,$done)); L4:
-   } else {
-    # late (post-body) checks, optimize checkRWL() position
-    return if $doHelo && ($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-    return if $doSender && ($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-    checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && ($SPFExtra & 4);
-    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && ($RBLExtra & 4); L5:
-    if ($doHelo && !($HeloExtra & 4) ||
-        $doSender && !($SenderExtra & 4) ||
-        $doSPF && !($SPFExtra & 4) ||
-        $doRBL && !($RBLExtra & 4)) {
-     return call('L6',checkRWL($fh)) if needRWL($fh); L6:
+   # late (post-body) checks
+   if (needHeloCheck($fh,5)) {
+    return call('L2',needExtraCheck($fh,$HeloExtra,$this->{noprocessing})); L2:
+    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
+   }
+   if (needSenderCheck($fh,4)) {
+    return call('L3',needExtraCheck($fh,$SenderExtra,$this->{noprocessing})); L3:
+    if (shift) {
+     return if checkSender($fh,$this->{allLoveMfSpam})<0;
+    } else {
      # update some Sender Stats
-     if ($SenderPosition==4 && !($SenderExtra & 4) && $this->{rwlok}) {
+     if (!($SenderExtra & 1) && $this->{noprocessing}) {
+      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+      $Stats{senderUnprocessed}++;
+     } else {
       mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
       return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
       $Stats{senderWhitelisted}++;
      }
-     unless ($this->{rwlok}) {
-      return if $doHelo && !($HeloExtra & 4) && checkHelo($fh,$this->{allLoveHlSpam})<0;
-      return if $doSender && !($SenderExtra & 4) && checkSender($fh,$this->{allLoveMfSpam})<0;
-      checkSPF($fh,$this->{allLoveSPFSpam}) if $doSPF && !($SPFExtra & 4);
-      return call('L7',checkRBL($fh,$this->{allLoveRBLSpam})) if $doRBL && !($RBLExtra & 4); L7:
-     }
     }
+   }
+   if (needSPFCheck($fh,4)) {
+    return call('L4',needExtraCheck($fh,$SPFExtra,$this->{noprocessing})); L4:
+    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
+   }
+   if (needRBLCheck($fh,6)) {
+    return call('L5',needExtraCheck($fh,$RBLExtra,$this->{noprocessing})); L5:
+    return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
+   }
+   if ($this->{noprocessing}) {
+    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
+   } else {
     checkBomb($fh);
     checkScript($fh);
     checkAttach($fh,'(external)',$BlockExes,$extAttachColl);
-    return call('L8',checkURIBL($fh)) if $doURIBL && ($URIBLExtra & 4); L8:
-    if ($doURIBL && !($URIBLExtra & 4)) {
-     return call('L9',checkRWL($fh)) if needRWL($fh); L9:
-     unless ($this->{rwlok}) {
-      return call('L10',checkURIBL($fh)) if $doURIBL && !($URIBLExtra & 4); L10:
-     }
-    }
+   }
+   if (needURIBLCheck($fh)) {
+    return call('L7',needExtraCheck($fh,$URIBLExtra,$this->{noprocessing})); L7:
+    return call('L8',checkURIBL($fh)) if (shift); L8:
+   }
+   if ($this->{noprocessing}) {
+    return call('L9',npBodyDone($fh,$done)); L9:
+   } else {
     checkSpam($fh);
-    return call('L11',getBodyDone($fh,$done)); L11:
+    return call('L10',getBodyDone($fh,$done)); L10:
    }
   }
  }];
@@ -2522,8 +2525,14 @@ sub continueBody {
   $this=$Con{$fh};
 
   $this->{skipcheckLine}||=!($MsgVerifyExtra & 1) && $this->{noprocessing} ||
+                           !($MsgVerifyExtra & 2) && $this->{white} ||
+                           !($MsgVerifyExtra & 4) && $this->{rwlok};
 
-   !$MsgVerifyWL && $this->{white};
+##                           !(($MsgVerifyExtra & 6)==6 ||
+##                             ($MsgVerifyExtra & 2) && !$this->{rwlok} ||
+##                             ($MsgVerifyExtra & 4) && $this->{rwlok});
+##
+##   !$MsgVerifyWL && $this->{white};
 
   return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{maillength}+=length($l);
@@ -2671,7 +2680,7 @@ sub skipok {
 # messages from the server get relayed to the client
 sub reply {
  my ($fh,$l);
- my ($this,$client,$e,$err,$reply,$delay,$buf,$len,$ip,$port,$doRateLimit,$doRBL);
+ my ($this,$client,$e,$err,$reply,$delay,$buf,$len,$ip,$port);
  my $sref=$Tasks{$CurTaskID}->{reply}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -2709,29 +2718,16 @@ sub reply {
     sendque($fh,$this->{noop},1);
     delete $this->{noop};
    }
-
-   return call('L4',checkRWL($client)); L4: ## testing
-
-##   # early (on-connect) checks
-##   return if $RateLimitPosition==1 && checkRateLimitBlock($client,0)<0;
-##   return call('L1',checkRBL($client)) if $RBLPosition==1; L1:
-##   return if checkNonLate($client,0)<0;
-
-   # early (on-connect) checks, optimize checkRWL() position
-   $doRateLimit=$EnableRateLimit && $RateLimitPosition==1;
-   $doRBL=needRBL($client) && $RBLPosition==1;
-   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
-   return call('L1',checkRBL($client)) if $doRBL && ($RBLExtra & 4); L1:
-   if ($doRateLimit && !($RateLimitExtra & 4) ||
-       $doRBL && !($RBLExtra & 4)) {
-    return call('L2',checkRWL($client)) if needRWL($client); L2:
-    unless ($Con{$client}->{rwlok}) {
-     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
-     return call('L3',checkRBL($client)) if $doRBL && !($RBLExtra & 4); L3:
-    }
+   # early (on-connect) checks
+   if (needRateLimitBlockCheck($fh,1)) {
+    return call('L1',needExtraCheck($client,$RateLimitExtra)); L1:
+    return if (shift) && checkRateLimitBlock($client,0)<0;
+   }
+   if (needRBLCheck($client,1)) {
+    return call('L2',needExtraCheck($client,$RBLExtra)); L2:
+    return call('L3',checkRBL($client)) if (shift); L3:
    }
    return if checkNonLate($client,0)<0;
-
    # detect earlytalkers
    unless ($this->{greetdelay}<0) {
     $delay=$this->{greetdelay};
@@ -2760,27 +2756,16 @@ sub reply {
      return;
     }
    }
-
-##   # early (pre-banner) checks
-##   return if $RateLimitPosition==2 && checkRateLimitBlock($client,0)<0;
-##   return call('L5',checkRBL($client)) if $RBLPosition==2; L5:
-##   return if checkNonLate($client,0)<0;
-
-   # early (pre-banner) checks, optimize checkRWL() position
-   $doRateLimit=$EnableRateLimit && $RateLimitPosition==2;
-   $doRBL=needRBL($client) && $RBLPosition==2;
-   return if $doRateLimit && ($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
-   return call('L5',checkRBL($client)) if $doRBL && ($RBLExtra & 4); L5:
-   if ($doRateLimit && !($RateLimitExtra & 4) ||
-       $doRBL && !($RBLExtra & 4)) {
-    return call('L6',checkRWL($client)) if needRWL($client); L6:
-    unless ($Con{$client}->{rwlok}) {
-     return if $doRateLimit && !($RateLimitExtra & 4) && checkRateLimitBlock($client,0)<0;
-     return call('L7',checkRBL($client)) if $doRBL && !($RBLExtra & 4); L7:
-    }
+   # early (pre-banner) checks
+   if (needRateLimitBlockCheck($fh,2)) {
+    return call('L5',needExtraCheck($client,$RateLimitExtra)); L5:
+    return if (shift) && checkRateLimitBlock($client,0)<0;
+   }
+   if (needRBLCheck($client,2)) {
+    return call('L6',needExtraCheck($client,$RBLExtra)); L6:
+    return call('L7',checkRBL($client)) if (shift); L7:
    }
    return if checkNonLate($client,0)<0;
-
   } elsif ($l=~/^235/) {
    # check for authentication response
    mlogCond($client,'authenticated',$ClientValLog);
@@ -2874,6 +2859,47 @@ sub checkNeeded {
  my ($fh,$coll,$testmode,$spamlover)=@_;
  my $this=$Con{$fh};
  return $coll>$this->{coll} || !(($this->{spamfound} & 4) || $testmode || $spamlover);
+}
+
+# determine if need to do extraCheck
+#
+#          config_np  0 0 0 0 1 1 1 1
+#          config_wl  0 0 1 1 0 0 1 1
+#          config_rwl 0 1 0 1 0 1 0 1
+#
+# np wl rwl
+# 0  0  0             1 1 1 1 1 1 1 1
+# 0  0  1             0 1 0 1 0 1 0 1
+# 0  1  0             0 0 1 1 0 0 1 1
+# 0  1  1             0 0 0 1 0 0 0 1
+# 1  0  0             0 0 0 0 1 1 1 1
+# 1  0  1             0 0 0 0 1 1 1 1
+# 1  1  0             0 0 0 0 1 1 1 1
+# 1  1  1             0 0 0 0 1 1 1 1
+#
+sub needExtraCheck {
+ my ($fh,$config,$issender,$np,$wl);
+ my $this;
+ my $sref=$Tasks{$CurTaskID}->{needExtraCheck}||=[sub{
+  ($fh,$config,$np,$wl)=@_;
+ },sub{&jump;
+  $this=$Con{$fh};
+  return $config & 1 if $np;
+  return call('L1',checkRWL($fh)) if needRWLCheck($fh); L1:
+  if ($wl) {
+   if ($this->{rwlok}) {
+    return ($config & 6)==6;
+   } else {
+    return $config & 2;
+   }
+  } elsif ($this->{rwlok}) {
+   return $config & 4;
+  } else {
+   return 1;
+  }
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub checkNonLate {
@@ -3071,9 +3097,10 @@ sub checkEmailInterface {
  return 0;
 }
 
-sub needHelo {
+sub needHeloCheck {
  return 0 unless $ValidateHelo;
- my $fh=shift;
+ my ($fh,$pos)=@_;
+ return 0 if $pos && $pos!=$HeloPosition;
  my $this=$Con{$fh};
  return !$this->{relayok} && !$this->{mISPRE};
 }
@@ -3164,9 +3191,10 @@ sub checkHelo {
  return $result;
 }
 
-sub needSender {
+sub needSenderCheck {
  return 0 unless $ValidateSender;
- my $fh=shift;
+ my ($fh,$pos)=@_;
+ return 0 if $pos && $pos!=$SenderPosition;
  my $this=$Con{$fh};
  return !$this->{relayok} && !$this->{mISPRE};
 }
@@ -3272,9 +3300,10 @@ sub checkSRSBounce {
  thisIsSpam($fh,'not SRS signed',$SRSBounceError,$srsTestMode,$this->{allLoveSRSSpam},$SRSFailColl,'msgNoSRSBounce',1);
 }
 
-sub needSPF {
+sub needSPFCheck {
  return 0 unless $CanUseSPF && $ValidateSPF;
- my $fh=shift;
+ my ($fh,$pos)=@_;
+ return 0 if $pos && $pos!=$SPFPosition;
  my $this=$Con{$fh};
  return !$this->{relayok} && !$this->{mISPRE};
 }
@@ -3351,7 +3380,7 @@ sub checkSPF {
  }
 }
 
-sub needRWL {
+sub needRWLCheck {
  return 0 unless $CanUseRWL && $ValidateRWL;
  my $fh=shift;
  my $this=$Con{$fh};
@@ -3423,9 +3452,10 @@ sub checkRWL {
  return $sref->[1];
 }
 
-sub needRBL {
+sub needRBLCheck {
  return 0 unless $CanUseRBL && $ValidateRBL;
- my $fh=shift;
+ my ($fh,$pos)=@_;
+ return 0 if $pos && $pos!=$RBLPosition;
  my $this=$Con{$fh};
  return !$this->{relayok} && !$this->{mISPRE};
 }
@@ -3897,7 +3927,7 @@ sub checkAttach {
  $this->{checkedattach}='no bad attachments';
 }
 
-sub needURIBL {
+sub needURIBLCheck {
  return 0 unless $CanUseURIBL && $ValidateURIBL;
  my $fh=shift;
  my $this=$Con{$fh};
@@ -4089,11 +4119,19 @@ sub checkRateLimit {
  return 1;
 }
 
+sub needRateLimitBlockCheck {
+ return 0 unless $EnableRateLimit;
+ my ($fh,$pos)=@_;
+ return 0 if $pos && $pos!=$RateLimitPosition;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE};
+}
+
 # RateLimit Block checks
 sub checkRateLimitBlock {
  my ($fh,$spamlover)=@_;
  my $this=$Con{$fh};
- return 1 if $this->{relayok} || $this->{mISPRE};
+## return 1 if $this->{relayok} || $this->{mISPRE};
 ## return 1 unless $EnableRateLimit;
  return 1 if $this->{mNRLRE};
  my $ip=$this->{ip};
