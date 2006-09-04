@@ -2878,7 +2878,7 @@ sub checkNeeded {
 # 1  1  1             0 0 0 0 1 1 1 1
 #
 sub needExtraCheck {
- my ($fh,$config,$issender,$np,$wl);
+ my ($fh,$config,$np,$wl);
  my $this;
  my $sref=$Tasks{$CurTaskID}->{needExtraCheck}||=[sub{
   ($fh,$config,$np,$wl)=@_;
