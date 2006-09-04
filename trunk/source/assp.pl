@@ -1505,16 +1505,7 @@ sub getLine {
     if (shift) {
      return if checkSender($fh)<0;
     } else {
-     # update some Sender Stats
-     if (!($SenderExtra & 1) && $np) {
-      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-      $Stats{senderUnprocessed}++;
-     } else {
-      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-      $Stats{senderWhitelisted}++;
-     }
+     return if updateSenderStats($fh,$np)<0;
     }
    }
    if (needSPFCheck($fh,1)) {
@@ -1672,16 +1663,7 @@ sub getLine {
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
     } else {
-     # update some Sender Stats
-     if (!($SenderExtra & 1) && $np) {
-      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-      $Stats{senderUnprocessed}++;
-     } else {
-      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-      $Stats{senderWhitelisted}++;
-     }
+     return if updateSenderStats($fh,$np)<0;
     }
    }
    if (needSPFCheck($fh,2)) {
@@ -1933,16 +1915,7 @@ sub npHeaderExec {
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
    } else {
-    # update some Sender Stats
-    if (!($SenderExtra & 1)) {
-     mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-     $Stats{senderUnprocessed}++;
-    } else {
-     mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-     return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-     $Stats{senderWhitelisted}++;
-    }
+    return if updateSenderStats($fh,1)<0;
    }
   }
   if (needSPFCheck($fh,3)) {
@@ -1982,10 +1955,7 @@ sub wlHeaderExec {
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
    } else {
-    # update some Sender Stats
-    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-    $Stats{senderWhitelisted}++;
+    return if updateSenderStats($fh)<0;
    }
   }
   if (needSPFCheck($fh,3)) {
@@ -2026,10 +1996,7 @@ sub getHeaderExec {
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
    } else {
-    # update some Sender Stats
-    mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-    return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-    $Stats{senderWhitelisted}++;
+    return if updateSenderStats($fh)<0;
    }
   }
   checkSpamBucket($fh);
@@ -2077,12 +2044,7 @@ sub npBody {
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
     } else {
-     # update some Sender Stats
-     unless ($SenderExtra & 1) {
-      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-      $Stats{senderUnprocessed}++;
-     }
+     return if updateSenderStats($fh,1)<0;
     }
    }
    if (needSPFCheck($fh,4)) {
@@ -2135,16 +2097,7 @@ sub whiteBody {
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
     } else {
-     # update some Sender Stats
-     if (!($SenderExtra & 1) && $this->{noprocessing}) {
-      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-      $Stats{senderUnprocessed}++;
-     } else {
-      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-      $Stats{senderWhitelisted}++;
-     }
+     return if updateSenderStats($fh,$this->{noprocessing})<0;
     }
    }
    if (needSPFCheck($fh,4)) {
@@ -2203,16 +2156,7 @@ sub getBody {
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
     } else {
-     # update some Sender Stats
-     if (!($SenderExtra & 1) && $this->{noprocessing}) {
-      mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
-      $Stats{senderUnprocessed}++;
-     } else {
-      mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-      return if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
-      $Stats{senderWhitelisted}++;
-     }
+     return if updateSenderStats($fh,$this->{noprocessing})<0;
     }
    }
    if (needSPFCheck($fh,4)) {
@@ -3278,6 +3222,21 @@ sub checkSender {
   thisIsSpam($fh,'invalid sender',$SpamError,$mfTestMode,$spamlover,$mfFailColl,'senderfails',1);
  }
  return $result;
+}
+
+# update some Sender Stats
+sub updateSenderStats {
+ my ($fh,$np)=@_; 
+ if (!($SenderExtra & 1) && $np) {
+  mlogCond($fh,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
+  return -1 if checkRateLimit($fh,'senderUnprocessed',0,0)<0;
+  $Stats{senderUnprocessed}++;
+ } else {
+  mlogCond($fh,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
+  return -1 if checkRateLimit($fh,'senderWhitelisted',0,0)<0;
+  $Stats{senderWhitelisted}++;
+ }
+ return 1;
 }
 
 sub checkSpamBucket {
