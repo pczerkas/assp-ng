@@ -131,7 +131,7 @@ sub clean {
  $m=~s/\015\012\015\012\015\012\015\012(?:\015\012)+/\015\012blines blines\015\012/g;
  # clean up html stuff
  $m=~s/<script.*?>\s*(?:<!\S*)?/ jscripttag jscripttag /gi;
- while ($m=~s/(\w+)(<[^>]*>)((?:<[^>]*>)*\w+)/$2$1$3/g){} # move html out of words
+ while ($m=~s/(\w+)(<[^>]*>)((?:<[^>]*>)*\w+)/$2$1$3/g) {} # move html out of words
  $m=~s/<(?:[biu]|strong)>/ boldifytext boldifytext /gi;
  # remove some tags that are not informative
  $m=~s/<\/?(?:p|br|div|t[dr])[^>]*>/\015\012/gi;

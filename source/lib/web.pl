@@ -1022,7 +1022,7 @@ sub webAnalyze {
     next if $wl{lc $d}++;
     $wl.="<b>$d is on Blacklisted Domains list</b><br />\n" if $blackListedDomains && $adr=~$BLDRE1;
     $wl.="<b>$d is on Whitelisted Domains list</b><br />\n" if $whiteListedDomains && $adr=~$WLDRE;
-    if ($Redlist{lc $adr}){
+    if ($Redlist{lc $adr}) {
      $wl.="<b>$adr is redlisted</b><br />\n"
     } else {
      $wl.="<b>$adr is whitelisted</b><br />\n" if $Whitelist{lc $adr};

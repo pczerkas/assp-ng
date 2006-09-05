@@ -1472,7 +1472,7 @@ sub getLine {
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
    headerWrap($this->{rcvd}); # wrap long lines
    # early (pre-mailfrom) checks
-   if (needHeloCheck($fh,1)) {
+   if (needCheckHelo($fh,1)) {
     return call('L1',needExtraCheck($fh,$HeloExtra)); L1:
     return if (shift) && checkHelo($fh)<0;
    }
@@ -1492,15 +1492,15 @@ sub getLine {
    # early (pre-rcpt) checks
    $np=$this->{noprocessing} & 1;
    $wl=$this->{mailfromonwl} || $this->{mWLDRE};
-   if (needRateLimitBlockCheck($fh,3)) {
+   if (needCheckRateLimitBlock($fh,3)) {
     return call('L2',needExtraCheck($fh,$RateLimitExtra,$np,$wl)); L2:
     return if (shift) && checkRateLimitBlock($fh,0)<0;
    }
-   if (needHeloCheck($fh,2)) {
+   if (needCheckHelo($fh,2)) {
     return call('L3',needExtraCheck($fh,$HeloExtra,$np,$wl)); L3:
     return if (shift) && checkHelo($fh)<0;
    }
-   if (needSenderCheck($fh,1)) {
+   if (needCheckSender($fh,1)) {
     return call('L4',needExtraCheck($fh,$SenderExtra,$np,$wl)); L4:
     if (shift) {
      return if checkSender($fh)<0;
@@ -1508,11 +1508,11 @@ sub getLine {
      return if updateSenderStats($fh,$np)<0;
     }
    }
-   if (needSPFCheck($fh,1)) {
+   if (needCheckSPF($fh,1)) {
     return call('L5',needExtraCheck($fh,$SPFExtra,$np,$wl)); L5:
     checkSPF($fh) if (shift);
    }
-   if (needRBLCheck($fh,3)) {
+   if (needCheckRBL($fh,3)) {
     return call('L6',needExtraCheck($fh,$RBLExtra,$np,$wl)); L6:
     return call('L7',checkRBL($fh)) if (shift); L7:
    }
@@ -1650,15 +1650,15 @@ sub getLine {
    # normal (pre-data) checks
    $np=$this->{noprocessing} & 3;
    $wl=$this->{mailfromonwl} || $this->{mWLDRE};
-   if (needRateLimitBlockCheck($fh,4)) {
+   if (needCheckRateLimitBlock($fh,4)) {
     return call('L8',needExtraCheck($fh,$RateLimitExtra,$np,$wl)); L8:
     return if (shift) && checkRateLimitBlock($fh,1)<0;
    }
-   if (needHeloCheck($fh,3)) {
+   if (needCheckHelo($fh,3)) {
     return call('L9',needExtraCheck($fh,$HeloExtra,$np,$wl)); L9:
     return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    }
-   if (needSenderCheck($fh,2)) {
+   if (needCheckSender($fh,2)) {
     return call('L10',needExtraCheck($fh,$SenderExtra,$np,$wl)); L10:
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -1666,11 +1666,11 @@ sub getLine {
      return if updateSenderStats($fh,$np)<0;
     }
    }
-   if (needSPFCheck($fh,2)) {
+   if (needCheckSPF($fh,2)) {
     return call('L11',needExtraCheck($fh,$SPFExtra,$np,$wl)); L11:
     checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
    }
-   if (needRBLCheck($fh,4)) {
+   if (needCheckRBL($fh,4)) {
     return call('L12',needExtraCheck($fh,$RBLExtra,$np,$wl)); L12:
     return call('L13',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L13:
    }
@@ -1790,14 +1790,14 @@ sub preHeader {
   # to RateLimit Spamlovers, optimize checkRWL() position
   # for checkLine() and checkHeader()
   $wl=$this->{mailfromonwl} || $this->{mWLDRE};
-  if (needRateLimitBlockCheck($fh)) {
+  if (needCheckRateLimitBlock($fh)) {
    return call('L1',needExtraCheck($fh,$RateLimitExtra,$this->{noprocessing},$wl)); L1:
    checkRateLimitBlock($fh,1) if (shift);
   }
-  $this->{skipcheckLine}=1;
+  $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L2',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$wl)); L2:
-   $this->{skipcheckLine}=0 if (shift);
+   $this->{skipCheckLine}=0 if (shift);
   }
 
   # prepare ClamAV STREAM connection
@@ -1823,10 +1823,10 @@ sub npHeader {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{header}.=$l;
   $this->{maillength}+=length($l);  
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1845,10 +1845,10 @@ sub getHeader {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{header}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1905,11 +1905,11 @@ sub npHeaderExec {
  },sub{&jump;
   $this=$Con{$fh};
   # late (post-header) checks
-  if (needHeloCheck($fh,4)) {
+  if (needCheckHelo($fh,4)) {
    return call('L1',needExtraCheck($fh,$HeloExtra,1)); L1:
    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   }
-  if (needSenderCheck($fh,3)) {
+  if (needCheckSender($fh,3)) {
    return call('L2',needExtraCheck($fh,$SenderExtra,1)); L2:
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -1917,20 +1917,20 @@ sub npHeaderExec {
     return if updateSenderStats($fh,1)<0;
    }
   }
-  if (needSPFCheck($fh,3)) {
+  if (needCheckSPF($fh,3)) {
    return call('L3',needExtraCheck($fh,$SPFExtra,1)); L3:
    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
   }
-  if (needRBLCheck($fh,5)) {
+  if (needCheckRBL($fh,5)) {
    return call('L4',needExtraCheck($fh,$RBLExtra,1)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  $this->{skipcheckLine}=1;
+  $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L6',needExtraCheck($fh,$MsgVerifyExtra,1)); L6:
    if (shift) {
     checkHeader($fh);
-    $this->{skipcheckLine}=0;
+    $this->{skipCheckLine}=0;
    }
   }
   if ($l=~/^\.(?:\015\012)?$/) {
@@ -1951,11 +1951,11 @@ sub wlHeaderExec {
  },sub{&jump;
   $this=$Con{$fh};
   # late (post-header) checks
-  if (needHeloCheck($fh,4)) {
+  if (needCheckHelo($fh,4)) {
    return call('L1',needExtraCheck($fh,$HeloExtra,0,1)); L1:
    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   }
-  if (needSenderCheck($fh,3)) {
+  if (needCheckSender($fh,3)) {
    return call('L2',needExtraCheck($fh,$SenderExtra,0,1)); L2:
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -1963,20 +1963,20 @@ sub wlHeaderExec {
     return if updateSenderStats($fh)<0;
    }
   }
-  if (needSPFCheck($fh,3)) {
+  if (needCheckSPF($fh,3)) {
    return call('L3',needExtraCheck($fh,$SPFExtra,0,1)); L3:
    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
   }
-  if (needRBLCheck($fh,5)) {
+  if (needCheckRBL($fh,5)) {
    return call('L4',needExtraCheck($fh,$RBLExtra,0,1)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  $this->{skipcheckLine}=1;
+  $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L6',needExtraCheck($fh,$MsgVerifyExtra,0,1)); L6:
    if (shift) {
     checkHeader($fh);
-    $this->{skipcheckLine}=0;
+    $this->{skipCheckLine}=0;
    }
   }
   if ($l=~/^\.(?:\015\012)?$/) {
@@ -1998,11 +1998,11 @@ sub getHeaderExec {
   $this=$Con{$fh};
   # late (post-header) checks
   checkBlacklist($fh);
-  if (needHeloCheck($fh,4)) {
+  if (needCheckHelo($fh,4)) {
    return call('L1',needExtraCheck($fh,$HeloExtra)); L1:
    return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
   }
-  if (needSenderCheck($fh,3)) {
+  if (needCheckSender($fh,3)) {
    return call('L2',needExtraCheck($fh,$SenderExtra)); L2:
    if (shift) {
     return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2012,20 +2012,20 @@ sub getHeaderExec {
   }
   checkSpamBucket($fh);
   checkSRSBounce($fh);
-  if (needSPFCheck($fh,3)) {
+  if (needCheckSPF($fh,3)) {
    return call('L3',needExtraCheck($fh,$SPFExtra)); L3:
    checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
   }
-  if (needRBLCheck($fh,5)) {
+  if (needCheckRBL($fh,5)) {
    return call('L4',needExtraCheck($fh,$RBLExtra)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  $this->{skipcheckLine}=1;
+  $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L6',needExtraCheck($fh,$MsgVerifyExtra)); L6:
    if (shift) {
     checkHeader($fh);
-    $this->{skipcheckLine}=0;
+    $this->{skipCheckLine}=0;
    }
   }
   if ($l=~/^\.(?:\015\012)?$/) {   
@@ -2045,18 +2045,18 @@ sub npBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    # late (post-body) checks
-   if (needHeloCheck($fh,5)) {
+   if (needCheckHelo($fh,5)) {
     return call('L2',needExtraCheck($fh,$HeloExtra,1)); L2:
     return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    }
-   if (needSenderCheck($fh,4)) {
+   if (needCheckSender($fh,4)) {
     return call('L3',needExtraCheck($fh,$SenderExtra,1)); L3:
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2064,16 +2064,16 @@ sub npBody {
      return if updateSenderStats($fh,1)<0;
     }
    }
-   if (needSPFCheck($fh,4)) {
+   if (needCheckSPF($fh,4)) {
     return call('L4',needExtraCheck($fh,$SPFExtra,1)); L4:
     checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
    }
-   if (needRBLCheck($fh,6)) {
+   if (needCheckRBL($fh,6)) {
     return call('L5',needExtraCheck($fh,$RBLExtra,1)); L5:
     return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
    }
    checkAttach($fh,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   if (needURIBLCheck($fh)) {
+   if (needCheckURIBL($fh)) {
     return call('L7',needExtraCheck($fh,$URIBLExtra,1)); L7:
     return call('L8',checkURIBL($fh)) if (shift); L8:
    }
@@ -2091,10 +2091,10 @@ sub whiteBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
@@ -2105,11 +2105,11 @@ sub whiteBody {
     $this->{noprocessing}|=32;
    }
    # late (post-body) checks
-   if (needHeloCheck($fh,5)) {
+   if (needCheckHelo($fh,5)) {
     return call('L2',needExtraCheck($fh,$HeloExtra,$this->{noprocessing},1)); L2:
     return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    }
-   if (needSenderCheck($fh,4)) {
+   if (needCheckSender($fh,4)) {
     return call('L3',needExtraCheck($fh,$SenderExtra,$this->{noprocessing},1)); L3:
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2117,11 +2117,11 @@ sub whiteBody {
      return if updateSenderStats($fh,$this->{noprocessing})<0;
     }
    }
-   if (needSPFCheck($fh,4)) {
+   if (needCheckSPF($fh,4)) {
     return call('L4',needExtraCheck($fh,$SPFExtra,$this->{noprocessing},1)); L4:
     checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
    }
-   if (needRBLCheck($fh,6)) {
+   if (needCheckRBL($fh,6)) {
     return call('L5',needExtraCheck($fh,$RBLExtra,$this->{noprocessing},1)); L5:
     return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
    }
@@ -2130,7 +2130,7 @@ sub whiteBody {
    } else {
     checkAttach($fh,'(local/white)',$BlockWLExes,$wlAttachColl);
    }
-   if (needURIBLCheck($fh)) {
+   if (needCheckURIBL($fh)) {
     return call('L7',needExtraCheck($fh,$URIBLExtra,$this->{noprocessing},1)); L7:
     return call('L8',checkURIBL($fh)) if (shift); L8:
    }
@@ -2153,10 +2153,10 @@ sub getBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
@@ -2164,11 +2164,11 @@ sub getBody {
     $this->{noprocessing}|=8;
    }
    # late (post-body) checks
-   if (needHeloCheck($fh,5)) {
+   if (needCheckHelo($fh,5)) {
     return call('L2',needExtraCheck($fh,$HeloExtra,$this->{noprocessing})); L2:
     return if (shift) && checkHelo($fh,$this->{allLoveHlSpam})<0;
    }
-   if (needSenderCheck($fh,4)) {
+   if (needCheckSender($fh,4)) {
     return call('L3',needExtraCheck($fh,$SenderExtra,$this->{noprocessing})); L3:
     if (shift) {
      return if checkSender($fh,$this->{allLoveMfSpam})<0;
@@ -2176,11 +2176,11 @@ sub getBody {
      return if updateSenderStats($fh,$this->{noprocessing})<0;
     }
    }
-   if (needSPFCheck($fh,4)) {
+   if (needCheckSPF($fh,4)) {
     return call('L4',needExtraCheck($fh,$SPFExtra,$this->{noprocessing})); L4:
     checkSPF($fh,$this->{allLoveSPFSpam}) if (shift);
    }
-   if (needRBLCheck($fh,6)) {
+   if (needCheckRBL($fh,6)) {
     return call('L5',needExtraCheck($fh,$RBLExtra,$this->{noprocessing})); L5:
     return call('L6',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L6:
    }
@@ -2191,7 +2191,7 @@ sub getBody {
     checkScript($fh);
     checkAttach($fh,'(external)',$BlockExes,$extAttachColl);
    }
-   if (needURIBLCheck($fh)) {
+   if (needCheckURIBL($fh)) {
     return call('L7',needExtraCheck($fh,$URIBLExtra,$this->{noprocessing})); L7:
     return call('L8',checkURIBL($fh)) if (shift); L8:
    }
@@ -2484,14 +2484,14 @@ sub continueBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  $this->{skipcheckLine}=1;
+  $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L1',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$this->{white})); L1:
-   $this->{skipcheckLine}=0 if (shift);
+   $this->{skipCheckLine}=0 if (shift);
   }
-  return call('L2',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L2:
+  return call('L2',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L2:
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) unless $this->{skipcheckLine};
+  checkLine($fh,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done) {
    return call('L3',finalizeMail($fh,$l)); L3:
@@ -2509,9 +2509,9 @@ sub continueBody {
    $len=length($l);
    addTrafStats($fh,$len,0);
    $this->{bdata}-=$len if defined($this->{bdata});
-   return call('L4',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L4:
+   return call('L4',checkVirus($fh,$l)) unless $this->{skipCheckVirus}; L4:
    $this->{maillength}+=$len;
-   checkLine($fh,$l) unless $this->{skipcheckLine};
+   checkLine($fh,$l) unless $this->{skipCheckLine};
    $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
    if ($done) {
     return call('L5',finalizeMail($fh,$l)); L5:
@@ -2530,9 +2530,9 @@ sub continueBody {
    if ($len>$MaxBytes) {
     addTrafStats($fh,$len,0);
     $this->{bdata}-=$len if defined($this->{bdata});
-    return call('L6',checkVirus($fh,$this->{_})) unless $this->{skipcheckVirus}; L6:
+    return call('L6',checkVirus($fh,$this->{_})) unless $this->{skipCheckVirus}; L6:
     $this->{maillength}+=$len;
-    checkLine($fh,$this->{_}) unless $this->{skipcheckLine};
+    checkLine($fh,$this->{_}) unless $this->{skipCheckLine};
     $done=$this->{_}=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
     if ($done) {
      return call('L7',finalizeMail($fh,$this->{_})); L7:
@@ -2674,11 +2674,11 @@ sub reply {
     delete $this->{noop};
    }
    # early (on-connect) checks
-   if (needRateLimitBlockCheck($fh,1)) {
+   if (needCheckRateLimitBlock($fh,1)) {
     return call('L1',needExtraCheck($client,$RateLimitExtra)); L1:
     return if (shift) && checkRateLimitBlock($client,0)<0;
    }
-   if (needRBLCheck($client,1)) {
+   if (needCheckRBL($client,1)) {
     return call('L2',needExtraCheck($client,$RBLExtra)); L2:
     return call('L3',checkRBL($client)) if (shift); L3:
    }
@@ -2712,11 +2712,11 @@ sub reply {
     }
    }
    # early (pre-banner) checks
-   if (needRateLimitBlockCheck($fh,2)) {
+   if (needCheckRateLimitBlock($fh,2)) {
     return call('L5',needExtraCheck($client,$RateLimitExtra)); L5:
     return if (shift) && checkRateLimitBlock($client,0)<0;
    }
-   if (needRBLCheck($client,2)) {
+   if (needCheckRBL($client,2)) {
     return call('L6',needExtraCheck($client,$RBLExtra)); L6:
     return call('L7',checkRBL($client)) if (shift); L7:
    }
@@ -2840,7 +2840,7 @@ sub needExtraCheck {
  },sub{&jump;
   $this=$Con{$fh};
   return $config & 1 if $np;
-  return call('L1',checkRWL($fh)) if needRWLCheck($fh); L1:
+  return call('L1',checkRWL($fh)) if needCheckRWL($fh); L1:
   if ($wl) {
    if ($this->{rwlok}) {
     return ($config & 6)==6;
@@ -3052,7 +3052,7 @@ sub checkEmailInterface {
  return 0;
 }
 
-sub needHeloCheck {
+sub needCheckHelo {
  return 0 unless $ValidateHelo;
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$HeloPosition;
@@ -3146,7 +3146,7 @@ sub checkHelo {
  return $result;
 }
 
-sub needSenderCheck {
+sub needCheckSender {
  return 0 unless $ValidateSender;
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$SenderPosition;
@@ -3270,7 +3270,7 @@ sub checkSRSBounce {
  thisIsSpam($fh,'not SRS signed',$SRSBounceError,$srsTestMode,$this->{allLoveSRSSpam},$SRSFailColl,'msgNoSRSBounce',1);
 }
 
-sub needSPFCheck {
+sub needCheckSPF {
  return 0 unless $CanUseSPF && $ValidateSPF;
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$SPFPosition;
@@ -3350,7 +3350,7 @@ sub checkSPF {
  }
 }
 
-sub needRWLCheck {
+sub needCheckRWL {
  return 0 unless $CanUseRWL && $ValidateRWL;
  my $fh=shift;
  my $this=$Con{$fh};
@@ -3422,7 +3422,7 @@ sub checkRWL {
  return $sref->[1];
 }
 
-sub needRBLCheck {
+sub needCheckRBL {
  return 0 unless $CanUseRBL && $ValidateRBL;
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$RBLPosition;
@@ -3647,7 +3647,7 @@ sub needMsgVerify {
 sub checkLine {
  my ($fh,$l)=@_;
  my $this=$Con{$fh};
- return $this->{skipcheckLine}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
+ return $this->{skipCheckLine}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
  return unless checkNeeded($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyLineLength && length($l)>$MsgVerifyLineLength) {
   thisIsSpam($fh,'oversized line',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
@@ -3737,7 +3737,7 @@ sub checkVirus {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return $this->{skipcheckVirus}=1 if !$Avlocal && $this->{mailfromlocal};
+  return $this->{skipCheckVirus}=1 if !$Avlocal && $this->{mailfromlocal};
   return unless checkNeeded($fh,$viriColl);
   if ($AvUseClamAV) {
    # scan for viruses using ClamAV's clamd daemon
@@ -3759,8 +3759,8 @@ sub checkVirus {
    }
   } else {
    # scan for viruses using our AV engine
-   return $this->{skipcheckVirus}=1 unless $AvDbs;
-   return $this->{skipcheckVirus}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
+   return $this->{skipCheckVirus}=1 unless $AvDbs;
+   return $this->{skipCheckVirus}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
    ($av)=();
    unless ($av=$Con{$fh}->{av}) {
     $av=$Con{$fh}->{av}=Av->new();
@@ -3898,7 +3898,7 @@ sub checkAttach {
  $this->{checkedattach}='no bad attachments';
 }
 
-sub needURIBLCheck {
+sub needCheckURIBL {
  return 0 unless $CanUseURIBL && $ValidateURIBL;
  my $fh=shift;
  my $this=$Con{$fh};
@@ -4090,7 +4090,7 @@ sub checkRateLimit {
  return 1;
 }
 
-sub needRateLimitBlockCheck {
+sub needCheckRateLimitBlock {
  return 0 unless $EnableRateLimit;
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$RateLimitPosition;
@@ -6350,7 +6350,7 @@ sub addchar {
  }
  foreach $hsiz (8,4,2,1) {
   my $l=$db[$hsiz]->{substr($self->{buf},-$hsiz)};
-  foreach (@{$l}){
+  foreach (@{$l}) {
    if (!$_->[0] || $self->{prereq}->{$_->[0]}) {
     # pre test
     if (!$_->[4] || substr($self->{buf},$_->[3],$_->[4]) eq $_->[5]) {

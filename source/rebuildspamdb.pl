@@ -317,7 +317,7 @@ sub dayofweek {
  my ($d, $m, $y)=$_[0]=~/(\S+) +(\S+) +(\S+)/;
  $y+=2000;
  $m=$Months{$m};
- if($m <= 2){ $y--; }
+ if ($m <= 2) { $y--; }
  my $wday = (($d+$Month{$m}+$y+(int($y/4))-(int($y/100))+(int($y/400)))%7);
  return $Weekday{$wday};
 }
