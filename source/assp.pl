@@ -1794,7 +1794,12 @@ sub preHeader {
    return call('L1',needExtraCheck($fh,$RateLimitExtra,$this->{noprocessing},$wl)); L1:
    checkRateLimitBlock($fh,1) if (shift);
   }
-  return call('L2',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$wl)) if $EnableMsgVerify; L2:
+  $this->{skipcheckLine}=1;
+  if (needMsgVerify($fh)) {
+   return call('L2',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$wl)); L2:
+   $this->{skipcheckLine}=0 if (shift);
+  }
+
   # prepare ClamAV STREAM connection
   return call('L3',prepareClamAV($fh)); L3:
   if ($this->{noprocessing}) {
@@ -1818,13 +1823,10 @@ sub npHeader {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)); L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{header}.=$l;
-  $this->{maillength}+=length($l);
-  
-##  checkLine($fh,$l) if !$this->{skipcheckLine} && $MsgVerifyExtra & 1;
-  checkLine($fh,$l) if !$this->{skipcheckLine} && needExtraCheck($MsgVerifyExtra,1);
-
+  $this->{maillength}+=length($l);  
+  checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1843,13 +1845,10 @@ sub getHeader {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)); L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{header}.=$l;
   $this->{maillength}+=length($l);
-
-  ##checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 2) || !($this->{mailfromonwl} || $this->{mWLDRE})) && (($MsgVerifyExtra & 4) || !$this->{rwlok});
-  checkLine($fh,$l) if !$this->{skipcheckLine} && needExtraCheck($MsgVerifyExtra,0,$this->{mailfromonwl} || $this->{mWLDRE},$this->{rwlok});
-
+  checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    splitFix($fh);
@@ -1926,8 +1925,14 @@ sub npHeaderExec {
    return call('L4',needExtraCheck($fh,$RBLExtra,1)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  return call('L6',needExtraCheck($fh,$MsgVerifyExtra,1)); L6:
-  checkHeader($fh) if (shift);
+  $this->{skipcheckLine}=1;
+  if (needMsgVerify($fh)) {
+   return call('L6',needExtraCheck($fh,$MsgVerifyExtra,1)); L6:
+   if (shift) {
+    checkHeader($fh);
+    $this->{skipcheckLine}=0;
+   }
+  }
   if ($l=~/^\.(?:\015\012)?$/) {
    return call('L7',npBodyDone($fh,1)); L7:
   } else {
@@ -1966,8 +1971,14 @@ sub wlHeaderExec {
    return call('L4',needExtraCheck($fh,$RBLExtra,0,1)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  return call('L6',needExtraCheck($fh,$MsgVerifyExtra,0,1)); L6:
-  checkHeader($fh) if (shift);
+  $this->{skipcheckLine}=1;
+  if (needMsgVerify($fh)) {
+   return call('L6',needExtraCheck($fh,$MsgVerifyExtra,0,1)); L6:
+   if (shift) {
+    checkHeader($fh);
+    $this->{skipcheckLine}=0;
+   }
+  }
   if ($l=~/^\.(?:\015\012)?$/) {
    return call('L7',whiteBodyDone($fh,1)); L7:
   } else {
@@ -2009,8 +2020,14 @@ sub getHeaderExec {
    return call('L4',needExtraCheck($fh,$RBLExtra)); L4:
    return call('L5',checkRBL($fh,$this->{allLoveRBLSpam})) if (shift); L5:
   }
-  return call('L6',needExtraCheck($fh,$MsgVerifyExtra)); L6:
-  checkHeader($fh) if (shift);
+  $this->{skipcheckLine}=1;
+  if (needMsgVerify($fh)) {
+   return call('L6',needExtraCheck($fh,$MsgVerifyExtra)); L6:
+   if (shift) {
+    checkHeader($fh);
+    $this->{skipcheckLine}=0;
+   }
+  }
   if ($l=~/^\.(?:\015\012)?$/) {   
    return call('L7',getBodyDone($fh,1)); L7:
   } else {
@@ -2028,10 +2045,10 @@ sub npBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)); L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if !$this->{skipcheckLine} && $MsgVerifyExtra & 1;
+  checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    # late (post-body) checks
@@ -2074,10 +2091,10 @@ sub whiteBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)); L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 6)==6 || ($MsgVerifyExtra & 2) && !$this->{rwlok} || ($MsgVerifyExtra & 4) && $this->{rwlok});
+  checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
@@ -2136,10 +2153,10 @@ sub getBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  return call('L1',checkVirus($fh,$l)); L1:
+  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  checkLine($fh,$l) if !$this->{skipcheckLine} && (($MsgVerifyExtra & 4) || !$this->{rwlok});
+  checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
@@ -2467,23 +2484,17 @@ sub continueBody {
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-
-  $this->{skipcheckLine}||=!($MsgVerifyExtra & 1) && $this->{noprocessing} ||
-                           !($MsgVerifyExtra & 2) && $this->{white} ||
-                           !($MsgVerifyExtra & 4) && $this->{rwlok};
-
-##                           !(($MsgVerifyExtra & 6)==6 ||
-##                             ($MsgVerifyExtra & 2) && !$this->{rwlok} ||
-##                             ($MsgVerifyExtra & 4) && $this->{rwlok});
-##
-##   !$MsgVerifyWL && $this->{white};
-
-  return call('L1',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L1:
+  $this->{skipcheckLine}=1;
+  if (needMsgVerify($fh)) {
+   return call('L1',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$this->{white})); L1:
+   $this->{skipcheckLine}=0 if (shift);
+  }
+  return call('L2',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L2:
   $this->{maillength}+=length($l);
   checkLine($fh,$l) unless $this->{skipcheckLine};
   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
   if ($done) {
-   return call('L2',finalizeMail($fh,$l)); L2:
+   return call('L3',finalizeMail($fh,$l)); L3:
    return if (shift)<0;
   } else {
    sendque($this->{friend},$l);
@@ -2498,12 +2509,12 @@ sub continueBody {
    $len=length($l);
    addTrafStats($fh,$len,0);
    $this->{bdata}-=$len if defined($this->{bdata});
-   return call('L3',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L3:
+   return call('L4',checkVirus($fh,$l)) unless $this->{skipcheckVirus}; L4:
    $this->{maillength}+=$len;
    checkLine($fh,$l) unless $this->{skipcheckLine};
    $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
    if ($done) {
-    return call('L4',finalizeMail($fh,$l)); L4:
+    return call('L5',finalizeMail($fh,$l)); L5:
     return if (shift)<0;
    } else {
     sendque($this->{friend},$l);
@@ -2519,12 +2530,12 @@ sub continueBody {
    if ($len>$MaxBytes) {
     addTrafStats($fh,$len,0);
     $this->{bdata}-=$len if defined($this->{bdata});
-    return call('L5',checkVirus($fh,$this->{_})) unless $this->{skipcheckVirus}; L5:
+    return call('L6',checkVirus($fh,$this->{_})) unless $this->{skipcheckVirus}; L6:
     $this->{maillength}+=$len;
     checkLine($fh,$this->{_}) unless $this->{skipcheckLine};
     $done=$this->{_}=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
     if ($done) {
-     return call('L6',finalizeMail($fh,$this->{_})); L6:
+     return call('L7',finalizeMail($fh,$this->{_})); L7:
      return if (shift)<0;
     } else {
      sendque($this->{friend},$this->{_});
@@ -3626,13 +3637,17 @@ sub delayWhiteExpire {
  }
 }
 
+sub needMsgVerify {
+ return 0 unless $EnableMsgVerify;
+ my $fh=shift;
+ my $this=$Con{$fh};
+ return !$this->{relayok} && !$this->{mISPRE} && !$this->{mNMVRE};
+}
+
 sub checkLine {
  my ($fh,$l)=@_;
  my $this=$Con{$fh};
- return $this->{skipcheckLine}=1 if $this->{relayok} || $this->{mISPRE};
- return $this->{skipcheckLine}=1 unless $EnableMsgVerify;
  return $this->{skipcheckLine}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
- return $this->{skipcheckLine}=1 if $this->{mNMVRE};
  return unless checkNeeded($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyLineLength && length($l)>$MsgVerifyLineLength) {
   thisIsSpam($fh,'oversized line',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
@@ -3642,10 +3657,7 @@ sub checkLine {
 sub checkHeader {
  my $fh=shift;
  my $this=$Con{$fh};
- return if $this->{relayok} || $this->{mISPRE};
- return unless $EnableMsgVerify;
  return if $AVBytes && $this->{maillength}>=$AVBytes;
- return if $this->{mNMVRE};
  return unless checkNeeded($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyHeaders && $this->{header}!~/^$HeaderAllCRLFRe+$/) {
   thisIsSpam($fh,'malformed headers',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
