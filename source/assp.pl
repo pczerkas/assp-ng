@@ -1799,7 +1799,6 @@ sub preHeader {
    return call('L2',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$wl)); L2:
    $this->{skipCheckLine}=0 if (shift);
   }
-
   # prepare ClamAV STREAM connection
   return call('L3',prepareClamAV($fh)); L3:
   if ($this->{noprocessing}) {
@@ -4095,16 +4094,13 @@ sub needCheckRateLimitBlock {
  my ($fh,$pos)=@_;
  return 0 if $pos && $pos!=$RateLimitPosition;
  my $this=$Con{$fh};
- return !$this->{relayok} && !$this->{mISPRE};
+ return !$this->{relayok} && !$this->{mISPRE} && !$this->{mNRLRE};
 }
 
 # RateLimit Block checks
 sub checkRateLimitBlock {
  my ($fh,$spamlover)=@_;
  my $this=$Con{$fh};
-## return 1 if $this->{relayok} || $this->{mISPRE};
-## return 1 unless $EnableRateLimit;
- return 1 if $this->{mNRLRE};
  my $ip=$this->{ip};
  my $port=$this->{port};
  # also check for entries, when $RateLimitUseNetblocks was enabled
