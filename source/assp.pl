@@ -2290,7 +2290,7 @@ sub thisIsSpam {
  $this->{stats}=$this->{tag}=$stats;
  $this->{error}=$error;
  $this->{spamprob}=$prob;
- if (checkNeeded($fh,$coll,$testmode,$spamlover)) {
+ if (needCheck($fh,$coll,$testmode,$spamlover)) {
   $this->{coll}=$coll;
   if ($AddSpamReasonHeader) {
    if ($this->{myheader}=~/^X-Assp-Spam-Reason$HeaderSepRe/imo) {
@@ -2809,7 +2809,7 @@ sub checkLDAP {
  return $entry_count;
 }
 
-sub checkNeeded {
+sub needCheck {
  my ($fh,$coll,$testmode,$spamlover)=@_;
  my $this=$Con{$fh};
  return $coll>$this->{coll} || !(($this->{spamfound} & 4) || $testmode || $spamlover);
@@ -2954,7 +2954,7 @@ sub checkBlacklist {
  my $fh=shift;
  my $this=$Con{$fh};
  return if $this->{relayok} || $this->{mISPRE};
- return unless checkNeeded($fh,$blDomainColl,$blTestMode,$this->{allLoveBlSpam});
+ return unless needCheck($fh,$blDomainColl,$blTestMode,$this->{allLoveBlSpam});
  return unless $this->{mailfrom}=~$BLDRE1 || $this->{senders}=~$BLDRE2;
  thisIsSpam($fh,'blacklisted domain',$SpamError,$blTestMode,$this->{allLoveBlSpam},$blDomainColl,'blacklisted',1);
 }
@@ -3067,7 +3067,7 @@ sub checkHelo {
   ($result)=@{$this->{Helocache}};
  } else {
   my $skip;
-  unless (checkNeeded($fh,$spamHeloColl,$hlTestMode,$spamlover)) {
+  unless (needCheck($fh,$spamHeloColl,$hlTestMode,$spamlover)) {
    $skip=1;
   }
   unless ($skip) {
@@ -3155,7 +3155,7 @@ sub needCheckSender {
 
 sub checkSender {
  my ($fh,$spamlover)=@_;
- return 1 unless checkNeeded($fh,$mfFailColl,$mfTestMode,$spamlover);
+ return 1 unless needCheck($fh,$mfFailColl,$mfTestMode,$spamlover);
  my $this=$Con{$fh};
  my $result=1;
  if (@{$this->{Sendercache}}) {
@@ -3254,7 +3254,7 @@ sub checkSpamBucket {
  my $this=$Con{$fh};
  return if $this->{relayok} || $this->{mISPRE};
  return unless $this->{addressedToSpamBucket};
- return unless checkNeeded($fh,$spamBucketColl,$sbTestMode,$this->{allLoveSpam});
+ return unless needCheck($fh,$spamBucketColl,$sbTestMode,$this->{allLoveSpam});
  thisIsSpam($fh,'spam trap',$SpamError,$sbTestMode,$this->{allLoveSpam},$spamBucketColl,'spambucket',1);
 }
 
@@ -3264,7 +3264,7 @@ sub checkSRSBounce {
  return if $this->{relayok} || $this->{mISPRE};
  return unless $CanUseSRS && $EnableSRS;
  return unless $SRSValidateBounce && $this->{invalidSRSBounce};
- return unless checkNeeded($fh,$SRSFailColl,$srsTestMode,$this->{allLoveSRSSpam});
+ return unless needCheck($fh,$SRSFailColl,$srsTestMode,$this->{allLoveSRSSpam});
  return if matchIP($this->{ip},'noSRSBounce');
  thisIsSpam($fh,'not SRS signed',$SRSBounceError,$srsTestMode,$this->{allLoveSRSSpam},$SRSFailColl,'msgNoSRSBounce',1);
 }
@@ -3287,7 +3287,7 @@ sub checkSPF {
  } else {
   my $skip;
   my $ip=$this->{ip};
-  unless (checkNeeded($fh,$SPFFailColl,$spfTestMode,$spamlover)) {
+  unless (needCheck($fh,$SPFFailColl,$spfTestMode,$spamlover)) {
    mlogCond($fh,"SPF lookup skipped (unnecessary)",$SPFLog);
    $skip=1;
   } elsif (matchIP($ip,'noSPF')) {
@@ -3371,7 +3371,7 @@ sub checkRWL {
    ($skip)=();
    $ip=$this->{ip};
 
-##   unless (checkNeeded($fh,$RBLFailColl,$rblTestMode,$spamlover)) {
+##   unless (needCheck($fh,$RBLFailColl,$rblTestMode,$spamlover)) {
 ##    mlogCond($fh,"RBL lookup skipped (unnecessary)",$RBLLog);
 ##    $skip=1;
 ##   } elsif (matchIP($ip,'noRWL')) {
@@ -3443,7 +3443,7 @@ sub checkRBL {
   } else {
    ($skip)=();
    $ip=$this->{ip};
-   unless (checkNeeded($fh,$RBLFailColl,$rblTestMode,$spamlover)) {
+   unless (needCheck($fh,$RBLFailColl,$rblTestMode,$spamlover)) {
     mlogCond($fh,"RBL lookup skipped (unnecessary)",$RBLLog);
     $skip=1;
    } elsif (matchIP($ip,'noRBL')) {
@@ -3647,7 +3647,7 @@ sub checkLine {
  my ($fh,$l)=@_;
  my $this=$Con{$fh};
  return $this->{skipCheckLine}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
- return unless checkNeeded($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
+ return unless needCheck($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyLineLength && length($l)>$MsgVerifyLineLength) {
   thisIsSpam($fh,'oversized line',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
  }
@@ -3657,7 +3657,7 @@ sub checkHeader {
  my $fh=shift;
  my $this=$Con{$fh};
  return if $AVBytes && $this->{maillength}>=$AVBytes;
- return unless checkNeeded($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
+ return unless needCheck($fh,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyHeaders && $this->{header}!~/^$HeaderAllCRLFRe+$/) {
   thisIsSpam($fh,'malformed headers',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
  }
@@ -3673,7 +3673,7 @@ sub prepareClamAV {
   $this=$Con{$fh};
   return unless $AvUseClamAV;
   return if !$Avlocal && $this->{mailfromlocal};
-  return unless checkNeeded($fh,$viriColl);
+  return unless needCheck($fh,$viriColl);
   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$AvDestination,Timeout=>2);
   unless ($s) {
    mlogCond($fh,"couldn't create command socket to $AvDestination -- aborting ClamAV scan",$AvLog);
@@ -3737,7 +3737,7 @@ sub checkVirus {
  },sub{&jump;
   $this=$Con{$fh};
   return $this->{skipCheckVirus}=1 if !$Avlocal && $this->{mailfromlocal};
-  return unless checkNeeded($fh,$viriColl);
+  return unless needCheck($fh,$viriColl);
   if ($AvUseClamAV) {
    # scan for viruses using ClamAV's clamd daemon
    $sfh=$this->{sfh};
@@ -3791,7 +3791,7 @@ sub checkClamAV {
   $this=$Con{$fh};
   return unless $AvUseClamAV;
   return if !$Avlocal && $this->{mailfromlocal};
-  return unless checkNeeded($fh,$viriColl);
+  return unless needCheck($fh,$viriColl);
   doneClamAV($fh,2); # close STREAM
   $sfh=$this->{sfh};
   $s=$SMTPSessions{$sfh}->{clamdfh};
@@ -3850,7 +3850,7 @@ sub checkBomb {
  my $this=$Con{$fh};
  return unless $bombRe;
  return if $this->{mNBSRE};
- return unless checkNeeded($fh,$spamBombColl,0,$this->{allLoveBombsSpam});
+ return unless needCheck($fh,$spamBombColl,0,$this->{allLoveBombsSpam});
  if ($this->{header}=~$bombReRE) {
   mlogCond($fh,"header matches bombRe: '$^R'",$RELog);
   thisIsSpam($fh,'mail bomb',$bombError,0,$this->{allLoveBombsSpam},$spamBombColl,'bombs',1);
@@ -3865,7 +3865,7 @@ sub checkScript {
  my $this=$Con{$fh};
  return unless $scriptRe;
  return if $this->{mNBSRE};
- return unless checkNeeded($fh,$scriptColl,0,$this->{allLoveBombsSpam});
+ return unless needCheck($fh,$scriptColl,0,$this->{allLoveBombsSpam});
  if ($this->{header}=~$scriptReRE) {
   mlogCond($fh,"header matches scriptRe: '$^R'",$RELog);
   thisIsSpam($fh,'contains scripting',$scriptError,0,$this->{allLoveBombsSpam},$scriptColl,'scripts',1);
@@ -3880,7 +3880,7 @@ sub checkAttach {
  my $this=$Con{$fh};
  $this->{checkedattach}='attachments unchecked';
  return unless $block;
- return unless checkNeeded($fh,$coll);
+ return unless needCheck($fh,$coll);
  return if matchSL($this->{mailfrom},'noAttachment');
  while ($this->{body}=~/^Content-(?:$HeaderNameSepRe)($HeaderValueRe)name\s*=\s*($HeaderValueRe)/gimo) {
   # skip forwarded messages whose subject ends with a .com domain eg
@@ -3913,7 +3913,7 @@ sub checkURIBL {
   $fh=shift;
  },sub{&jump;
   $this=$Con{$fh};
-  unless (checkNeeded($fh,$URIBLFailColl,$uriblTestMode,$this->{allLoveURIBLSpam})) {
+  unless (needCheck($fh,$URIBLFailColl,$uriblTestMode,$this->{allLoveURIBLSpam})) {
    mlogCond($fh,"URIBL lookup skipped (unnecessary)",$RBLLog);
    return;
   } elsif (matchSL($this->{mailfrom},'noURIBL')) {
@@ -4134,7 +4134,7 @@ sub checkRateLimitBlock {
 sub checkSpam {
  my $fh=shift;
  my $this=$Con{$fh};
- return unless checkNeeded($fh,$baysSpamColl,$baysTestMode,$this->{allLoveBaysSpam});
+ return unless needCheck($fh,$baysSpamColl,$baysTestMode,$this->{allLoveBaysSpam});
  if ($whiteRe) {
   if ($this->{header}=~$whiteReRE) {
    mlogCond($fh,"header matches whiteRe: '$^R'",$RELog);
