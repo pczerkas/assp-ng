@@ -1386,7 +1386,7 @@ sub webSimulate {
    $this->{_body}="$body\015\012.\015\012";
    while ($this->{connected}) {
     # run it !
-    MainLoop();
+##    MainLoop();
    }
    $mlog=$SMTPSessions{$fh}->{mlogbuf};
    $slog=$SMTPSessions{$fh}->{slogbuf};
