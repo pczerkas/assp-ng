@@ -105,19 +105,19 @@ open(F,">$base/$spamdb.tmp") or die "Couldn't open '$base/$spamdb.tmp': $!\n";
 binmode F;
 print F "\n";
 
-if($spamObject) {
+if ($spamObject) {
  $spamObject->flush();
  open(I,"<$base/spamtmp");
  local $/="\n";
  while(<I>) {
   ($_,$s,$t)=/(.*)\002(\d+) (\d+)/;
   $t=($t-$s)*$norm+$s; # normalize t
-  if($t < 5) {
+  if ($t < 5) {
    #$unknowns+=$s; $unknownt+=$t;
    next;
   }
   # if token represents all spam or all ham then square its value
-  if($s==$t || $s==0) {
+  if ($s==$t || $s==0) {
    $s=$s*$s; $t=$t*$t;
   }
   $v=(1+$s)/($t+2);
@@ -130,12 +130,12 @@ if($spamObject) {
  while(my ($k,$v)=each(%spam)) {
   ($s,$t)=split(' ',$v);
   $t=($t-$s)*$norm+$s; # normalize t
-  if($t < 5) {
+  if ($t < 5) {
    #$unknowns+=$s; $unknownt+=$t;
    next;
   }
   # if token represents all spam or all ham then square its value
-  if($s==$t || $s==0) {
+  if ($s==$t || $s==0) {
    $s=$s*$s; $t=$t*$t;
   }
   $v=(1+$s)/($t+2);
@@ -165,12 +165,12 @@ undef @Helo; undef %Helo;
 backupFile("$base/$spamdb.helo");
 rename("$base/$spamdb.helo.tmp","$base/$spamdb.helo");
 
-if(rand()< .05) {
+if (rand()< .05) {
  # rarely, let's clean the whitelist of old entries
  $t=time - 24*3600*$MaxWhitelistDays;
  print "Cleaning whitelist\n";
 
- if(open(F,"<$base/$whitelistdb") && open(O,">$base/$whitelistdb.tmp")) {
+ if (open(F,"<$base/$whitelistdb") && open(O,">$base/$whitelistdb.tmp")) {
   binmode(F);
   binmode(O);
   local $/="\n";
@@ -186,7 +186,7 @@ if(rand()< .05) {
   rename("$base/$whitelistdb.tmp","$base/$whitelistdb");
  }
 
- if( open(F,"<$base/goodhosts") && open(O,">$base/goodhosts.tmp")) {
+ if (open(F,"<$base/goodhosts") && open(O,">$base/goodhosts.tmp")) {
   binmode(F);
   binmode(O);
   $t=time - 24*3600*20;
@@ -206,7 +206,7 @@ if(rand()< .05) {
 
 putmaxtick("$base/data/rebuild");
 printf "\ntotal time processing=%d second(s)\n",time-$starttime;
-if($spamObject) {unlink("$base/spamtmp");}
+if ($spamObject) {unlink("$base/spamtmp");}
 
 uploadgreylist() unless $noGreyListUpload;
 
@@ -217,8 +217,8 @@ sub hamHash { $HamHash{hash($_[1])}=''; }
 
 sub checkspam {
  my $h;
- #if(whitelisted($_[1])) {print "wl: $_[1]\n\n"; return 1;}
- if(defined($HamHash{$h=hash($_[1])}) || whitelisted($_[1])) {
+ #if (whitelisted($_[1])) {print "wl: $_[1]\n\n"; return 1;}
+ if (defined($HamHash{$h=hash($_[1])}) || whitelisted($_[1])) {
   # we've found a message in the spam database that is the same as one in the corrected Ham group
   my $fn=shift;
   # delete it
@@ -246,7 +246,7 @@ sub whitelisted {
 
 sub checkham {
  my $h;
- if(defined($SpamHash{$h=hash($_[1])}) ) {
+ if (defined($SpamHash{$h=hash($_[1])})) {
   # we've found a message in the ham database that is the same as one in the corrected spam group
   my $fn=shift;
   # delete it
@@ -267,7 +267,7 @@ sub get {
  read(F,$m,$MaxRebuildBytes);
  close F;
  return '' if $sub->($fn,$m);
- if($spamObject && $GetCount++>500) {
+ if ($spamObject && $GetCount++>500) {
   #print "flushing\n";
   $spamObject->flush();
   $GetCount=0;
@@ -358,7 +358,7 @@ sub tick {
   print "$Tick $stars \r";
 }
 sub getmaxtick {
-  if(open(F,"<$_[0].mt")) {
+  if (open(F,"<$_[0].mt")) {
    $MaxTick = <F>;
    close F;
    $MaxTick=~y/0-9//cd;
@@ -421,7 +421,7 @@ sub uploadgreylist {
 Host: assp.sourceforge.net";
  }
  my $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
- if($s) {
+ if ($s) {
   my $len=length($st);
   $connect.="
 Content-Type: application/x-www-form-urlencoded
