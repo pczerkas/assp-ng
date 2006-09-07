@@ -4205,12 +4205,12 @@ sub collectMail {
   print F "\015\012$this->{body}";
   close F;
   # update Corpus cache
-  my $det=corpusDetails($fn,1);
+  my $det=corpusDetails($fn,1); ##todo
   my $sf=$this->{spamfound};
   my $flags=$det->[4];
   $flags|=4 if $sf; # set 'is-spam' bit
   $flags|=8 unless $sf & 4; # set 'passed-message' bit
-  corpusSetFlags($fn,$flags,0);
+  corpusSetFlags($fn,$flags,0); ## todo
  } else {
   mlog($fh,"error opening maillog '$base/$fn': $!");
  }
@@ -4507,7 +4507,7 @@ sub spamReportExec {
  print F $this->{body};
  close F;
  # update Corpus cache
- corpusDetails($fn,1);
+ corpusDetails($fn,1); ##todo
  return $sub;
 }
 
@@ -6014,89 +6014,198 @@ sub restart {
 # flags is a 4-bits field:
 #  1st bit->'seen', 2nd bit->'file-moved', 3rd bit->'is-spam', 4th bit->'passed-message'
 #  if 3rd and 4th bits are both 0, the state of the message is unknown
+
+##sub corpus {
+## return unless $EnableCorpusInterface;
+## my ($fn,$force)=@_;
+#### PeekLoop(); # ProcessMessages
+## if ($force || !exists ($Corpus{$fn})) {
+##  if (-f "$base/$fn") {
+##   $Corpus{$fn}=[stat("$base/$fn")]->[9]; # clear other fields (subject,from,to,flags)
+##  } else {
+##   delete $Corpus{$fn};
+##   return [undef];
+##  }
+## }
+## my @arr=split("\003",$Corpus{$fn});
+## return \@arr;
+##}
+
 sub corpus {
- return unless $EnableCorpusInterface;
- my ($fn,$force)=@_;
-## PeekLoop(); # ProcessMessages
- if ($force || !exists ($Corpus{$fn})) {
-  if (-f "$base/$fn") {
-   $Corpus{$fn}=[stat("$base/$fn")]->[9]; # clear other fields (subject,from,to,flags)
-  } else {
-   delete $Corpus{$fn};
-   return [undef];
+ my ($fn,$force);
+ my @arr;
+ my $sref=$Tasks{$CurTaskID}->{corpus}||=[sub{
+  ($fn,$force)=@_;
+ },sub{&jump;
+  return unless $EnableCorpusInterface;
+  if ($force || !exists ($Corpus{$fn})) {
+   return cede('L1'); L1: # ProcessMessages
+   if (-f "$base/$fn") {
+    $Corpus{$fn}=[stat("$base/$fn")]->[9]; # clear other fields (subject,from,to,flags)
+   } else {
+    delete $Corpus{$fn};
+    return [undef];
+   }
   }
- }
- my @arr=split("\003",$Corpus{$fn});
- return \@arr;
+  @arr=split("\003",$Corpus{$fn});
+  return \@arr;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
+
+##sub corpusDetails {
+## return unless $EnableCorpusInterface;
+## my ($fn,$force)=@_;
+## my $c=corpus($fn,$force);
+## return [undef] unless defined $c->[0];
+## if ($force || !defined ($c->[1])) {
+##  PeekLoop();
+##  open(F,"$base/$fn");
+##  binmode(F);
+##  local $/="\015\012\015\012"; # get only headers
+##  my $h=<F>;
+##  undef $/;
+##  close F;
+##  my $a;
+##  if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo) {
+##   $a=$1; $a=~tr/\002\003//; # sanitize
+##   $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
+##   $a=decodeMimeWords($a);
+##   $a=encodeHTMLEntities(substr($a,0,40));
+##  }
+##  $c->[1]=$a; $a='';
+##  if ($h=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
+##   $a=$1; $a=~tr/\002\003//; # sanitize
+##   if ($CanUseSRS && $EnableSRS) {
+##    my ($tt,$tt2);
+##    my $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+##                          MaxAge=>$SRSTimestampMaxAge,
+##                          HashLength=>$SRSHashLength,
+##                          AlwaysRewrite=>1);
+##    my ($ac)=$a=~/^<?([^\015\012>]*).*/;
+##    if ($ac=~/SRS0[=+-].*/i) {
+##     if (eval{$tt=$srs->reverse($ac)}) {
+##      $a=~s/\Q$ac\E/$tt/;
+##     }
+##    } elsif ($ac=~/^SRS1[=+-].*/i) {
+##     if (eval{$tt=$srs->reverse($ac)} && eval{$tt2=$srs->reverse($tt)}) {
+##      $a=~s/\Q$ac\E/$tt2/;
+##     }
+##    }
+##   }
+##   $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
+##   $a=decodeMimeWords($a);
+##   $a=encodeHTMLEntities(substr($a,0,40));
+##  }
+##  $c->[2]=$a; $a='';
+##  if ($h=~/^Subject$HeaderSepRe($HeaderValueRe)/imo && $1=~/(\S.*)/s) {
+##   $a=$1; $a=~tr/\002\003//; # sanitize
+##   $a=decodeMimeWords($a);
+##   $a=encodeHTMLEntities(substr($a,0,60));
+##  } else {
+##   $a="&lt;no subject&gt;";
+##  }
+##  $c->[3]=$a;
+##  $c->[4]=0;
+##  $Corpus{$fn}=join("\003",@$c);
+## }
+## return $c;
+##}
 
 sub corpusDetails {
- return unless $EnableCorpusInterface;
- my ($fn,$force)=@_;
- my $c=corpus($fn,$force);
- return [undef] unless defined $c->[0];
- if ($force || !defined ($c->[1])) {
-  PeekLoop();
-  open(F,"$base/$fn");
-  binmode(F);
-  local $/="\015\012\015\012"; # get only headers
-  my $h=<F>;
-  undef $/;
-  close F;
-  my $a;
-  if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo) {
-   $a=$1; $a=~tr/\002\003//; # sanitize
-   $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
-   $a=decodeMimeWords($a);
-   $a=encodeHTMLEntities(substr($a,0,40));
-  }
-  $c->[1]=$a; $a='';
-  if ($h=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
-   $a=$1; $a=~tr/\002\003//; # sanitize
-   if ($CanUseSRS && $EnableSRS) {
-    my ($tt,$tt2);
-    my $srs=new Mail::SRS(Secret=>$SRSSecretKey,
-                          MaxAge=>$SRSTimestampMaxAge,
-                          HashLength=>$SRSHashLength,
-                          AlwaysRewrite=>1);
-    my ($ac)=$a=~/^<?([^\015\012>]*).*/;
-    if ($ac=~/SRS0[=+-].*/i) {
-     if (eval{$tt=$srs->reverse($ac)}) {
-      $a=~s/\Q$ac\E/$tt/;
-     }
-    } elsif ($ac=~/^SRS1[=+-].*/i) {
-     if (eval{$tt=$srs->reverse($ac)} && eval{$tt2=$srs->reverse($tt)}) {
-      $a=~s/\Q$ac\E/$tt2/;
+ my ($fn,$force);
+ my ($c,$h,$a,$tt,$tt2,$srs,$ac);
+ my $sref=$Tasks{$CurTaskID}->{corpusDetails}||=[sub{
+  ($fn,$force)=@_;
+ },sub{&jump;
+  return unless $EnableCorpusInterface;
+  return call('L1',corpus($fn,$force)); L1:
+  $c=shift;
+  return [undef] unless defined $c->[0];
+  if ($force || !defined ($c->[1])) {
+   return cede('L2'); L2: # ProcessMessages
+   open(F,"$base/$fn");
+   binmode(F);
+   local $/="\015\012\015\012"; # get only headers
+   $h=<F>;
+   undef $/;
+   close F;
+   ($a)=();
+   if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo) {
+    $a=$1; $a=~tr/\002\003//; # sanitize
+    $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
+    $a=decodeMimeWords($a);
+    $a=encodeHTMLEntities(substr($a,0,40));
+   }
+   $c->[1]=$a; $a='';
+   if ($h=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
+    $a=$1; $a=~tr/\002\003//; # sanitize
+    if ($CanUseSRS && $EnableSRS) {
+     ($tt,$tt2)=();
+     $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                        MaxAge=>$SRSTimestampMaxAge,
+                        HashLength=>$SRSHashLength,
+                        AlwaysRewrite=>1);
+     ($ac)=$a=~/^<?([^\015\012>]*).*/;
+     if ($ac=~/SRS0[=+-].*/i) {
+      if (eval{$tt=$srs->reverse($ac)}) {
+       $a=~s/\Q$ac\E/$tt/;
+      }
+     } elsif ($ac=~/^SRS1[=+-].*/i) {
+      if (eval{$tt=$srs->reverse($ac)} && eval{$tt2=$srs->reverse($tt)}) {
+       $a=~s/\Q$ac\E/$tt2/;
+      }
      }
     }
+    $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
+    $a=decodeMimeWords($a);
+    $a=encodeHTMLEntities(substr($a,0,40));
    }
-   $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
-   $a=decodeMimeWords($a);
-   $a=encodeHTMLEntities(substr($a,0,40));
+   $c->[2]=$a; $a='';
+   if ($h=~/^Subject$HeaderSepRe($HeaderValueRe)/imo && $1=~/(\S.*)/s) {
+    $a=$1; $a=~tr/\002\003//; # sanitize
+    $a=decodeMimeWords($a);
+    $a=encodeHTMLEntities(substr($a,0,60));
+   } else {
+    $a="&lt;no subject&gt;";
+   }
+   $c->[3]=$a;
+   $c->[4]=0;
+   $Corpus{$fn}=join("\003",@$c);
   }
-  $c->[2]=$a; $a='';
-  if ($h=~/^Subject$HeaderSepRe($HeaderValueRe)/imo && $1=~/(\S.*)/s) {
-   $a=$1; $a=~tr/\002\003//; # sanitize
-   $a=decodeMimeWords($a);
-   $a=encodeHTMLEntities(substr($a,0,60));
-  } else {
-   $a="&lt;no subject&gt;";
-  }
-  $c->[3]=$a;
-  $c->[4]=0;
-  $Corpus{$fn}=join("\003",@$c);
- }
- return $c;
+  return $c;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
+##sub corpusSetFlags {
+## return unless $EnableCorpusInterface;
+## my ($fn,$flags,$force)=@_;
+## my $det=corpusDetails($fn,$force);
+## return [undef] unless defined $det->[0];
+## $det->[4]=$flags;
+## $Corpus{$fn}=join("\003",@$det);
+## return $det;
+##}
+
 sub corpusSetFlags {
- return unless $EnableCorpusInterface;
- my ($fn,$flags,$force)=@_;
- my $det=corpusDetails($fn,$force);
- return [undef] unless defined $det->[0];
- $det->[4]=$flags;
- $Corpus{$fn}=join("\003",@$det);
- return $det;
+ my ($fn,$flags,$force);
+ my $det;
+ my $sref=$Tasks{$CurTaskID}->{corpusSetFlags}||=[sub{
+  ($fn,$flags,$force)=@_;
+ },sub{&jump;
+  return unless $EnableCorpusInterface;
+  return call('L1',corpusDetails($fn,$force)); L1:
+  $det=shift;
+  return [undef] unless defined $det->[0];
+  $det->[4]=$flags;
+  $Corpus{$fn}=join("\003",@$det);
+  return $det;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 {
