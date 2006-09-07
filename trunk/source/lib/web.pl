@@ -1828,7 +1828,7 @@ sub webCorpus {
  my ($t,$last_visit,$this_visit,$since,@sel_colls,$coll,$sel_coll_html,$coll_desc,$def_coll,$c,@sel_maxages,$sel_maxage);
  my ($maxage,$sel_maxage_html,$maxage_desc,$def_maxage,@sel_acts,$sel_act,$act,$sel_act_html,$act_desc,$def_act);
  my ($s,$res,$done,$i,$icoll,$fil,$coll2,$det,$f,$nf,$pat,@tokens,@good,@bad,$matches,%dir2coll,$l,%s,$fil2,$rec);
- my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies);
+ my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies,@dir,$n,$fil3);
  my $sref=$Tasks{$CurTaskID}->{webCorpus}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -1986,10 +1986,13 @@ EOT
    } elsif ($act eq 'delete') {
     unlink("$base/${$coll2}/$fil");
     # remove cache entry
-    corpusDetails("${$coll2}/$fil",1);
+##    corpusDetails("${$coll2}/$fil",1);
+    return call('L1',corpusDetails("${$coll2}/$fil",1)); L1:
     $done++;
    } else {
-    $det=corpusDetails("${$coll2}/$fil",0);
+##    $det=corpusDetails("${$coll2}/$fil",0);
+    return call('L2',corpusDetails("${$coll2}/$fil")); L2:
+    $det=shift;
     next unless defined $det->[0];
     $f="$base/${$coll2}/$fil";
     $nf=$f;
@@ -2004,14 +2007,17 @@ EOT
      unlink("$base/$nf");
      if (rename($f,"$base/$nf")) {
       # remove old entry
-      corpusDetails("${$coll2}/$fil",1);
+##      corpusDetails("${$coll2}/$fil",1);
+      return call('L3',corpusDetails("${$coll2}/$fil",1)); L3:
       # reload new entry, turn on 'moved' bit in flags field
-      corpusSetFlags($nf,($det->[4])|2,1);
+##      corpusSetFlags($nf,($det->[4])|2,1);
+      return call('L4',corpusSetFlags($nf,($det->[4])|2,1)); L4:
       $done++;
      } else {
       mlog(0,"failed to move corpus file from '$f' to '$base/$nf': $!");
       # reload new entry
-      corpusDetails($nf,1);
+##      corpusDetails($nf,1);
+      return call('L5',corpusDetails($nf,1)); L5:
      }
     }
    }
@@ -2056,18 +2062,40 @@ EOT
    close F;
    $s.=join('',map{$s{$_}} reverse sort keys %s);
   } else {
+##   opendir(DIR,"$base/${$coll}");
+##   @items=sort{$b->[1]<=>$a->[1]}
+##          grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
+##          map{[$_,corpus("${$coll}/$_",0)->[0]]}
+##          readdir DIR;
+##   closedir(DIR);
+##   foreach $i (@items) {
+##    if ($res2=webCorpusItem($coll,$i->[0],corpusDetails("${$coll}/$i->[0]",0),$gpc,\@good,\@bad)) {
+##     $s.=$res2;
+##     $matches++;
+##    }
+##   }
+
    opendir(DIR,"$base/${$coll}");
+   @dir=readdir DIR;
+   closedir(DIR);
+   (@items)=();
+   for ($n=0;$n<@dir;$n++) {
+    $fil3=$dir[$n];
+    return call('L6',corpus("${$coll}/$fil3")); L6:
+    push(@items,[$fil3,(shift)->[0]]);
+   }
    @items=sort{$b->[1]<=>$a->[1]}
           grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
-          map{[$_,corpus("${$coll}/$_",0)->[0]]}
-          readdir DIR;
-   closedir(DIR);
-   foreach $i (@items) {
-    if ($res2=webCorpusItem($coll,$i->[0],corpusDetails("${$coll}/$i->[0]",0),$gpc,\@good,\@bad)) {
+          @items;
+   for ($n=0;$n<@items;$n++) {
+    $i=$items[$n];
+    return call('L7',corpusDetails("${$coll}/$i->[0]")); L7:
+    if ($res2=webCorpusItem($coll,$i->[0],shift,$gpc,\@good,\@bad)) {
      $s.=$res2;
      $matches++;
     }
    }
+
   }
   chomp($s);
   if ($s) {
@@ -2368,11 +2396,14 @@ EOT
     $s=~s/([^\015])\012/$1<span style="color:black; background-color:red">\\lf<\/span>\015\012/g;
    }
    $res="Contents of the $fil file ($coll_desc):";
-   $det=corpusDetails("${$coll}/$fil",0);
+##   $det=corpusDetails("${$coll}/$fil",0);
+   return call('L2',corpusDetails("${$coll}/$fil")); L2:
+   $det=shift;
    # if file has 'moved' bit set
    $res='<span class="neutral">'.$res.'</span>' if $det->[4] & 2;
    # turn on 'seen' bit in flags field
-   corpusSetFlags("${$coll}/$fil",($det->[4])|1,0);
+##   corpusSetFlags("${$coll}/$fil",($det->[4])|1,0);
+   return call('L3',corpusSetFlags("${$coll}/$fil",($det->[4])|1)); L3:
   }
   # cookie expiration date
   $cookie_exp=$t+2592000; # one month
