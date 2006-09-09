@@ -160,7 +160,7 @@ sub taskNewWebConnection {
     next;
    }
    # logging is done later (in webRequest()) due to /shutdown_frame page, which auto-refreshes
-   $Con{$client}->{itid}=newTask(taskWebTraffic($client),'NORM',0,'W');
+   $Con{$client}->{itid}=newTask(taskWebTraffic($client),'NORM','W');
   }
  });
 }
@@ -2632,7 +2632,7 @@ sub webConfig {
    configSave();
    webRender();
    openDatabases();
-   newTask(taskInitAv(),'NORM',0,'M') if $ConfigChanged{AvDbs} && !$AvUseClamAV && $AvDbs;
+   newTask(taskInitAv(),'NORM','M') if $ConfigChanged{AvDbs} && !$AvUseClamAV && $AvDbs;
    # re-render config if ShowNews changed
    $r=configRender($http,$gpc) if $ConfigChanged{ShowNews};
   }

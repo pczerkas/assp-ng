@@ -20,7 +20,7 @@ use bytes; # get rid of anoying 'Malformed UTF-8' messages
 use IO::Select;
 
 sub newTask {
- my ($handler,$priority,$suspended,$class)=@_;
+ my ($handler,$priority,$class,$suspended)=@_;
  return unless $handler;
  my $tid=++$TaskID;
  my $task=$Tasks{$tid}={};

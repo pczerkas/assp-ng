@@ -353,19 +353,19 @@ sub initDirs {
 }
 
 sub initTasks {
- newTask(taskOptionFilesReload(),'NORM',0,'M');
- newTask(taskMaintenance(),'NORM',0,'M');
- newTask(taskUploadStats(),'NORM',0,'M');
- newTask(taskDownloadGrey(),'NORM',0,'M');
- newTask(taskInitAv(),'IDLE',0,'M') if !$AvUseClamAV && $AvDbs;
- newTask(taskReloadAv(),'NORM',0,'M');
- newTask(taskServiceCheck(),'HIGH',0,'M') if $AsAService;
- newTask(taskRestartEvery(),'NORM',0,'M');
- newTask(taskNewSMTPConnection($Lsn),'NORM',0,'S') if $Lsn;
- newTask(taskNewWebConnection($WebSocket),'NORM',0,'W') if $WebSocket;
- newTask(taskNewSMTPConnection($Lsn2),'NORM',0,'S') if $Lsn2;
- newTask(taskNewSMTPConnection($Relay),'NORM',0,'S') if $Relay;
- newTask(taskStats(),'HIGH',0,'M');
+ newTask(taskOptionFilesReload(),'NORM','M');
+ newTask(taskMaintenance(),'NORM','M');
+ newTask(taskUploadStats(),'NORM','M');
+ newTask(taskDownloadGrey(),'NORM','M');
+ newTask(taskInitAv(),'IDLE','M') if !$AvUseClamAV && $AvDbs;
+ newTask(taskReloadAv(),'NORM','M');
+ newTask(taskServiceCheck(),'HIGH','M') if $AsAService;
+ newTask(taskRestartEvery(),'NORM','M');
+ newTask(taskNewSMTPConnection($Lsn),'NORM','S') if $Lsn;
+ newTask(taskNewWebConnection($WebSocket),'NORM','W') if $WebSocket;
+ newTask(taskNewSMTPConnection($Lsn2),'NORM','S') if $Lsn2;
+ newTask(taskNewSMTPConnection($Relay),'NORM','S') if $Relay;
+ newTask(taskStats(),'HIGH','M');
 }
 
 sub taskInitAv {
@@ -639,7 +639,7 @@ sub taskNewSMTPConnection {
     mlog(0,'accept failed -- aborting connection');
     next;
    }
-   binmode($client);
+##   binmode($client);
    return call('L2',newConnect($destination,2)); L2:
    unless ($server=shift) {
     if ($server==0) {
@@ -650,7 +650,7 @@ sub taskNewSMTPConnection {
     $client->close();
     next;
    }
-   binmode($server);
+##   binmode($server);
    addfh($client,\&getLine,$server);
    $this=$Con{$client};
    $this->{isClient}=1;
@@ -1244,8 +1244,8 @@ sub addfh {
  $this->{getline}=$getline;
  $this->{friend}=$friend;
  binmode($fh);
- $this->{itid}=newTask(taskSMTPInTraffic($fh),'NORM',0,'S');
- $this->{otid}=newTask(taskSMTPOutTraffic($fh),'NORM',0,'S');
+ $this->{itid}=newTask(taskSMTPInTraffic($fh),'NORM','S');
+ $this->{otid}=newTask(taskSMTPOutTraffic($fh),'NORM','S');
 }
 
 sub addSimfh {
@@ -2490,7 +2490,7 @@ sub finalizeMail {
       $this->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$this->{spamprob}) if $AddSpamProbHeader;
      }
      return call('L2',collectMail($fh)); L2:
- ##    forwardSpam($fh);
+     newTask(taskForwardMail($fh),'NORM','S');
     }
    }
   }
@@ -4223,53 +4223,68 @@ sub collectMail {
 }
 
 #####################################################################################
-#                forwardSpam functions
+#                forwardMail functions
 
-sub forwardSpam {
+sub taskForwardMail {
  my $fh=shift;
- my $coll=$Con{$fh}->{coll};
- return unless $coll==2 || $coll==4 || $coll==6 || $coll==8 || $coll==10 || $coll==12;
- my $sf=$Con{$fh}->{spamfound};
- my $to=($sf & 4) ? $ccBlocked : $sf ? $ccSpam : $ccHam;
- return unless $to;
- if ($ccFilter && !matchSL($Con{$fh}->{mailfrom},'ccFilter')) {
-  my $c;
-  foreach my $a (split(' ',$Con{$fh}->{rcpt})) { $c++ if matchSL($a,'ccFilter'); }
-  return unless $c;
- }
- my $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2); #todo
- unless ($s) {
-  mlog(0,"couldn't create server socket to $smtpDestination -- aborting CC connection");
-  return;
- }
- addfh($s,\&FShelo);
- my $this=$Con{$s};
- $this->{isServer}=1;
- # add SMTP session
- addSession($s);
- # set session fh (sfh)
- $this->{sfh}=$s;
- slog($s,"(connected $smtpDestination)",1,'I');
- $this->{from}=$Con{$fh}->{mailfrom};
- $this->{to}=$to;
- $this->{header}=$Con{$fh}->{header};
- # clear out notification headers (MDN's)
- $this->{header}=~s/^Disposition-Notification-$HeaderAllCRLFRe//gimo; # -To & -Options
- $this->{header}=~s/^Return-Receipt-To$HeaderSepValueCRLFRe//gimo;
- # first remove the spamSubject from Subject: if it was added by us
- $this->{header}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $sf && $spamSubject;
- # add ccBlockedSubject, ccSpamSubject or ccHamSubject to Subject:
- my $sub=($sf & 4) ? $ccBlockedSubject : $sf ? $ccSpamSubject : $ccHamSubject;
- $sub=~s/TAG/$SubjectTags{$Con{$fh}->{tag}}/g;
- if ($sub && $this->{header}!~/^Subject$HeaderSepRe\Q$sub\E /im) {
-  $this->{header}=~s/^Subject$HeaderSepRe/Subject: $sub /gimo; # rewrite all Subject: headers
- }
- # add X-Intended-For: header
- $this->{header}.="X-Intended-For: $Con{$fh}->{rcpt}\015\012";
- $this->{body}=$Con{$fh}->{body};
- # chop off final 'crlf dot crlf' sequence
- # it may have been damaged by MaxBytes boundary
- $this->{body}=~s/\015\012\.(?:\015\012)?$//;
+ my $this=$Con{$fh};
+ my $coll=$this->{coll};
+ my $sf=$this->{spamfound};
+ my $mailfrom=$this->{mailfrom};
+ my $rcpt=$this->{rcpt};
+ my $header=$this->{header};
+ my $tag=$Con{$fh}->{tag};
+ my ($to,$c,$s,$a,$sub);
+ return coro(sub{&jump;
+  return unless $coll==2 || $coll==4 || $coll==6 || $coll==8 || $coll==10 || $coll==12;
+  $to=($sf & 4) ? $ccBlocked : $sf ? $ccSpam : $ccHam;
+  return unless $to;
+  if ($ccFilter && !matchSL($mailfrom,'ccFilter')) {
+   ($c)=();
+   foreach $a (split(' ',$rcpt)) {
+    $c++ if matchSL($a,'ccFilter');
+   }
+   return unless $c;
+  }
+  return call('L1',newConnect($smtpDestination,2)); L1:
+  unless ($s=shift) {
+   if ($s==0) {
+    mlog(0,"timeout while connecting to $smtpDestination -- aborting CC connection");
+   } else {
+    mlog(0,"couldn't create server socket to $smtpDestination -- aborting CC connection");
+   }
+   return;
+  }
+  addfh($s,\&FShelo);
+  $this=$Con{$s};
+  $this->{isServer}=1;
+  # add SMTP session
+  addSession($s);
+  # set session fh (sfh)
+  $this->{sfh}=$s;
+  slog($s,"(connected $smtpDestination)",1,'I');
+  $this->{from}=$mailfrom;
+  $this->{to}=$to;
+  $this->{header}=$header;
+  # clear out notification headers (MDN's)
+  $this->{header}=~s/^Disposition-Notification-$HeaderAllCRLFRe//gimo; # -To & -Options
+  $this->{header}=~s/^Return-Receipt-To$HeaderSepValueCRLFRe//gimo;
+  # first remove the spamSubject from Subject: if it was added by us
+  $this->{header}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $sf && $spamSubject;
+  # add ccBlockedSubject, ccSpamSubject or ccHamSubject to Subject:
+  $sub=($sf & 4) ? $ccBlockedSubject : $sf ? $ccSpamSubject : $ccHamSubject;
+  $sub=~s/TAG/$SubjectTags{$tag}/g;
+  if ($sub && $this->{header}!~/^Subject$HeaderSepRe\Q$sub\E /im) {
+   $this->{header}=~s/^Subject$HeaderSepRe/Subject: $sub /gimo; # rewrite all Subject: headers
+  }
+  # add X-Intended-For: header
+  $this->{header}.="X-Intended-For: $rcpt\015\012";
+
+ ## $this->{body}=$Con{$fh}->{body};
+ ## # chop off final 'crlf dot crlf' sequence
+ ## # it may have been damaged by MaxBytes boundary
+ ## $this->{body}=~s/\015\012\.(?:\015\012)?$//;
+ });
 }
 
 sub FShelo {
@@ -4460,7 +4475,7 @@ sub spamReportBody {
    # we're done -- write the file & clean up
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    return call('L1',spamReportExec($fh)); L1:
-   newTask(ReturnMail($fh,' '.(shift)),'NORM',0,'S') unless $NoHaikuCorrection;
+   newTask(taskReturnMail($fh,' '.(shift)),'NORM','S') unless $NoHaikuCorrection;
    doneStats($fh,1,'reports');
    stateReset($fh);
    sendque($this->{friend},"RSET\015\012",1);
@@ -4582,7 +4597,7 @@ sub listReportBody {
    # mail summary report
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    $nhl=(($this->{reporttype} & 4)==0) ? $NoHaikuWhitelist : $NoHaikuRedlist;
-   newTask(ReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012"),'NORM',0,'S') unless $nhl;
+   newTask(taskReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012"),'NORM','S') unless $nhl;
    delete $this->{report};
    doneStats($fh,1,'reports');
    stateReset($fh);
@@ -4637,7 +4652,7 @@ sub listReportExec {
  }
 }
 
-sub ReturnMail {
+sub taskReturnMail {
  my ($fh,$sub,$body)=@_;
  my $type=$Con{$fh}->{reporttype};
  my $to=$Con{$fh}->{mailfrom};

@@ -1000,8 +1000,8 @@ $SpamCollectionOptions={'7'=>'spam folder',
  ['ccHam','Address to CC Ham',40,\&textinput,'','(.*)',undef,
   'If you put an email address in this box ASSP will try to deliver a copy of ham email to this address.<br />
    This is the forward ham feature. For example: spammeister@mydomain.com',undef],
- ['ccSpam','Address to CC Spam',40,\&textinput,'','(.*)',undef,
-  'If you put an email address in this box ASSP will try to deliver a copy of spam email to this address.<br />
+ ['ccSpam','Address to CC Passed Spam',40,\&textinput,'','(.*)',undef,
+  'If you put an email address in this box ASSP will try to deliver a copy of passed spam email to this address.<br />
    This is the forward spam feature. For example: spammeister@mydomain.com',undef],
  ['ccBlocked','Address to CC Blocked Spam',40,\&textinput,'','(.*)',undef,
   'If you put an email address in this box ASSP will try to deliver a copy of blocked spam email to this address.<br />
@@ -1546,7 +1546,7 @@ sub configChangeMailPort {
   $Lsn->close() if $Lsn;
   if ($Lsn=newListen($listenPort)) {
    mlog(0,"listening on new mail port $listenPort (changed from $old) per admin request");
-   newTask(taskNewSMTPConnection($Lsn),'NORM',0,'S');
+   newTask(taskNewSMTPConnection($Lsn),'NORM','S');
   }
   return '';
  } else {
@@ -1564,7 +1564,7 @@ sub configChangeMailPort2 {
   $Lsn2->close() if $Lsn2;
   if ($Lsn2=newListen($listenPort2)) {
    mlog(0,"listening on new secondary mail port $listenPort2 (changed from $old) per admin request");
-   newTask(taskNewSMTPConnection($Lsn2),'NORM',0,'S');
+   newTask(taskNewSMTPConnection($Lsn2),'NORM','S');
   }
   return '';
  } else {
@@ -1582,13 +1582,13 @@ sub configChangeAdminPort {
   $WebSocket->close();
   if ($WebSocket=newListen($webAdminPort)) {
    mlog(0,"listening on new admin port $new (changed from $old) per admin request");
-   newTask(taskNewWebConnection($WebSocket),'NORM',0,'W');
+   newTask(taskNewWebConnection($WebSocket),'NORM','W');
   } else {
    # couldn't open the port -- switch back
    $webAdminPort=$old;
    if ($WebSocket=newListen($webAdminPort)) {
     mlog(0,"couldn't open new port -- still listening on $old");
-    newTask(taskNewWebConnection($WebSocket),'NORM',0,'W');
+    newTask(taskNewWebConnection($WebSocket),'NORM','W');
     $Config{$name}=$old;
     return "<span class=\"negative\">Couldn't open new port $new</span>";
    } else {
@@ -1620,7 +1620,7 @@ sub configChangeRelayPort {
   $Relay->close() if $Relay;
   if ($Relay=newListen($relayPort)) {
    mlog(0,"listening for relay connections at $relayPort -- changed per admin request");
-   newTask(taskNewSMTPConnection($Relay),'NORM',0,'S');
+   newTask(taskNewSMTPConnection($Relay),'NORM','S');
   }
   return '';
  } else {
