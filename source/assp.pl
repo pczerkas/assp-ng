@@ -640,14 +640,13 @@ sub taskNewSMTPConnection {
    }
    binmode($client);
    return call('L2',newConnect($destination,2)); L2:
-   $server=shift;
-   unless ($server) {
-    $client->close();
+   unless ($server=shift) {
     if ($server==0) {
      mlog(0,"timeout while connecting to $destination -- aborting connection");
     } else {
      mlog(0,"couldn't create server socket to $destination -- aborting connection");
     }
+    $client->close();
     next;
    }
    binmode($server);
@@ -3244,10 +3243,10 @@ sub checkSPF {
      $Stats{providerMaxTimeSPF}=$time if $time>$Stats{providerMaxTimeSPF};
     }
    } else {
-    foreach my $recip (split(' ', $this->{rcpt})) {
+    foreach my $r (split(' ', $this->{rcpt})) {
      $Stats{providerQueriesSPF}++;
      my $time=Time::HiRes::time() if $AvailHiRes;
-     ($per_result,$smtp_comment,$header_comment)=$query->result2($recip);
+     ($per_result,$smtp_comment,$header_comment)=$query->result2($r);
      if ($AvailHiRes) {
       $time=Time::HiRes::time()-$time;
       $Stats{providerTimeSPF}+=$time;
@@ -3600,16 +3599,8 @@ sub prepareClamAV {
   return unless $AvUseClamAV;
   return if !$Avlocal && $this->{mailfromlocal};
   return unless needCheck($fh,$viriColl);
-
-##  $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$AvDestination,Timeout=>2);
-##  unless ($s) {
-##   mlogCond($fh,"couldn't create command socket to $AvDestination -- aborting ClamAV scan",$AvLog);
-##   return;
-##  }
-
   return call('L1',newConnect($AvDestination,2)); L1:
-  $s=shift;
-  unless ($s) {
+  unless ($s=shift) {
    if ($s==0) {
     mlogCond($fh,"timeout while connecting to $AvDestination -- aborting ClamAV scan",$AvLog);
    } else {
@@ -3617,15 +3608,6 @@ sub prepareClamAV {
    }
    return;
   }
-
-##  waitTaskWrite(0,$s,10);
-##  return cede('L1'); L1:
-##  unless (getTaskWaitResult(0)) {
-##   mlogCond($fh,'timeout while sending command -- aborting ClamAV scan',$AvLog);
-##   close $s;
-##   return;
-##  }
-
   $buf="STREAM\n";
   unless ($s->syswrite($buf,length($buf))>0) {
    mlogCond($fh,'disconnected while sending command -- aborting ClamAV scan',$AvLog);
@@ -3649,17 +3631,8 @@ sub prepareClamAV {
   if (($resp)=$buf=~/^PORT (\d+)/) {
    $dest=$AvDestination;
    $dest=~s/^(.*?)(?::\d+)?$/$1:$resp/;
-
-##   $st=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$dest,Timeout=>2);
-##   unless ($st) {
-##    mlogCond($fh,"couldn't create stream socket to $dest -- aborting ClamAV scan",$AvLog);
-##    close $s;
-##    return;
-##   }
-
    return call('L3',newConnect($dest,2)); L3:
-   $st=shift;
-   unless ($st) {
+   unless ($st=shift) {
     if ($st==0) {
      mlogCond($fh,"timeout while connecting to $dest -- aborting ClamAV scan",$AvLog);
     } else {
@@ -3668,7 +3641,6 @@ sub prepareClamAV {
     close $s;
     return;
    }
-
    mlogCond($fh,"connected to ClamAV stream socket at $dest",$AvLog);
    # all connections are prepared
    $SMTPSessions{$this->{sfh}}->{clamdfh}=$s; # command fh
@@ -4487,7 +4459,7 @@ sub spamReportBody {
    # we're done -- write the file & clean up
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    $sub=spamReportExec($fh);
-   ReturnMail($fh," $sub") unless $NoHaikuCorrection;
+   return call('L1',ReturnMail($fh," $sub")) unless $NoHaikuCorrection; L1:
    doneStats($fh,1,'reports');
    stateReset($fh);
    sendque($this->{friend},"RSET\015\012",1);
@@ -4546,63 +4518,77 @@ sub spamReportExec {
 
 # we're receiving an email to manipulate addresses in the whitelist/redlist
 sub listReport {
- my ($fh,$l)=@_;
- my $this=$Con{$fh};
- slog($fh,$l,0);
- if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
-  if ($1) {
-   $this->{bdata}=$1;
+ my ($fh,$l);
+ my ($this,$list);
+ my $sref=$Tasks{$CurTaskID}->{listReport}||=[sub{
+  ($fh,$l)=@_;
+ },sub{&jump;
+  $this=$Con{$fh};
+  slog($fh,$l,0);
+  if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
+   if ($1) {
+    $this->{bdata}=$1;
+   } else {
+    delete $this->{bdata};
+   }
+   $this->{indata}=1;
+   $this->{getline}=\&listReportBody;
+   $list=(($this->{reporttype} & 4)==0) ? 'whitelist' : 'redlist';
+   sendque($fh,"354 OK Send $list body\015\012",1);
+   return;
+  } elsif ($l=~/^ *RSET/i) {
+   stateReset($fh);
+   sendque($this->{friend},"RSET\015\012",1);
+   return;
+  } elsif ($l=~/^ *QUIT/i) {
+   stateReset($fh);
+   sendque($this->{friend},"QUIT\015\012",1);
+   return;
+  } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
+   sendque($fh,"504 Need to authenticate first\015\012",1);
+   return;
   } else {
-   delete $this->{bdata};
+   # more recipients ?
+   while ($l=~/($EmailAdrRe\@$EmailDomainRe)/go) {
+    listReportExec($fh,$1);
+    $this->{rcpt}.="$1 ";
+   }
   }
-  $this->{indata}=1;
-  $this->{getline}=\&listReportBody;
-  my $list=(($this->{reporttype} & 4)==0) ? 'whitelist' : 'redlist';
-  sendque($fh,"354 OK Send $list body\015\012",1);
-  return;
- } elsif ($l=~/^ *RSET/i) {
-  stateReset($fh);
-  sendque($this->{friend},"RSET\015\012",1);
-  return;
- } elsif ($l=~/^ *QUIT/i) {
-  stateReset($fh);
-  sendque($this->{friend},"QUIT\015\012",1);
-  return;
- } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-  sendque($fh,"504 Need to authenticate first\015\012",1);
-  return;
- } else {
-  # more recipients ?
-  while ($l=~/($EmailAdrRe\@$EmailDomainRe)/go) {
-   listReportExec($fh,$1);
-   $this->{rcpt}.="$1 ";
-  }
- }
- sendque($fh,"250 OK\015\012",1);
+  sendque($fh,"250 OK\015\012",1);
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # we're getting the body of a whitelist/redlist report
 sub listReportBody {
- my ($fh,$l)=@_;
- my $this=$Con{$fh};
- $this->{body}.=$l;
- $this->{maillength}+=length($l);
- if ($l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0) {
-  # mail summary report
-  slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
-  my $nhl=(($this->{reporttype} & 4)==0) ? $NoHaikuWhitelist : $NoHaikuRedlist;
-  ReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012") unless $nhl;
-  delete $this->{report};
-  doneStats($fh,1,'reports');
-  stateReset($fh);
-  sendque($this->{friend},"RSET\015\012",1);
- } elsif ($l=~/message-id:/i || $l=~/from:.*?\Q$this->{mailfrom}\E/i) {
-  # ignore
- } else {
-  while ($l=~/($EmailAdrRe\@$EmailDomainRe)/go) {
-   listReportExec($fh,$1);
+ my ($fh,$l);
+ my ($this,$nhl);
+ my $sref=$Tasks{$CurTaskID}->{listReportBody}||=[sub{
+  ($fh,$l)=@_;
+ },sub{&jump;
+  $this=$Con{$fh};
+  $this->{body}.=$l;
+  $this->{maillength}+=length($l);
+  if ($l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0) {
+   # mail summary report
+   slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
+   $nhl=(($this->{reporttype} & 4)==0) ? $NoHaikuWhitelist : $NoHaikuRedlist;
+   return call('L1',ReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012")) unless $nhl; L1:
+   delete $this->{report};
+   doneStats($fh,1,'reports');
+   stateReset($fh);
+   sendque($this->{friend},"RSET\015\012",1);
+  } elsif ($l=~/message-id:/i || $l=~/from:.*?\Q$this->{mailfrom}\E/i) {
+   # ignore
+  } else {
+   while ($l=~/($EmailAdrRe\@$EmailDomainRe)/go) {
+    listReportExec($fh,$1);
+   }
   }
- }
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub listReportExec {
@@ -4644,45 +4630,56 @@ sub listReportExec {
 }
 
 sub ReturnMail {
- my ($fh,$sub,$body)=@_;
- my $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2);
- unless ($s) {
-  mlog(0,"couldn't create server socket to $smtpDestination -- aborting ReturnMail connection");
-  return;
- }
- addfh($s,\&RMhelo);
- my $this=$Con{$s};
- $this->{isServer}=1;
- # add SMTP session
- addSession($s);
- # set session fh (sfh)
- $this->{sfh}=$s;
- slog($s,"(connected $smtpDestination)",1,'I');
- $this->{from}=$EmailFrom;
- $this->{to}=$Con{$fh}->{mailfrom};
- my $file='data/reports/';
- $file.=($Con{$fh}->{reporttype}==0) ? 'spamreport.txt' :
-        ($Con{$fh}->{reporttype}==1) ? 'notspamreport.txt' :
-        ($Con{$fh}->{reporttype}==2) ? 'whitereport.txt' :
-        ($Con{$fh}->{reporttype}==3) ? 'whiteremovereport.txt' :
-        ($Con{$fh}->{reporttype}==4) ? 'redreport.txt' :
-                                       'redremovereport.txt';
- open(F,"<$base/$file") || mlog(0,"couldn't open '$file' for mail report");
- local $/="\n";
- my $sub2=<F>;
- $sub2=~s/\s*(.*?)\s*(?:\r?\n|\r)/$1$sub/;
- undef $/;
- $this->{body}=<F>.$body;
- close F;
- $this->{body}=~s/\r?\n|\r/\015\012/g;
- my $date=$UseLocalTime ? localtime() : gmtime();
- my $tz=$UseLocalTime ? tzStr() : '+0000';
- $date=~s/(\w+) +(\w+) +(\d+) +(\S+) +(\d+)/$1, $3 $2 $5 $4/;
- $this->{header}="From: $this->{from}\015\012".
-                 "To: $this->{to}\015\012".
-                 "Subject: $sub2\015\012".
-                 "X-Assp-Report: YES\015\012".
-                 "Date: $date $tz\015\012";
+ my ($fh,$sub,$body);
+ my ($this,$file,$sub2,$date,$tz);
+ my $sref=$Tasks{$CurTaskID}->{ReturnMail}||=[sub{
+  ($fh,$sub,$body)=@_;
+ },sub{&jump;
+  return call('L1',newConnect($smtpDestination,2)); L1:
+  unless ($s=shift) {
+   if ($s==0) {
+    mlog(0,"timeout while connecting to $smtpDestination -- aborting ReturnMail connection");
+   } else {
+    mlog(0,"couldn't create server socket to $smtpDestination -- aborting ReturnMail connection");
+   }
+   return;
+  }
+  addfh($s,\&RMhelo);
+  $this=$Con{$s};
+  $this->{isServer}=1;
+  # add SMTP session
+  addSession($s);
+  # set session fh (sfh)
+  $this->{sfh}=$s;
+  slog($s,"(connected $smtpDestination)",1,'I');
+  $this->{from}=$EmailFrom;
+  $this->{to}=$Con{$fh}->{mailfrom};
+  $file='data/reports/';
+  $file.=($Con{$fh}->{reporttype}==0) ? 'spamreport.txt' :
+         ($Con{$fh}->{reporttype}==1) ? 'notspamreport.txt' :
+         ($Con{$fh}->{reporttype}==2) ? 'whitereport.txt' :
+         ($Con{$fh}->{reporttype}==3) ? 'whiteremovereport.txt' :
+         ($Con{$fh}->{reporttype}==4) ? 'redreport.txt' :
+                                        'redremovereport.txt';
+  open(F,"<$base/$file") || mlog(0,"couldn't open '$file' for mail report");
+  local $/="\n";
+  $sub2=<F>;
+  $sub2=~s/\s*(.*?)\s*(?:\r?\n|\r)/$1$sub/;
+  undef $/;
+  $this->{body}=<F>.$body;
+  close F;
+  $this->{body}=~s/\r?\n|\r/\015\012/g;
+  $date=$UseLocalTime ? localtime() : gmtime();
+  $tz=$UseLocalTime ? tzStr() : '+0000';
+  $date=~s/(\w+) +(\w+) +(\d+) +(\S+) +(\d+)/$1, $3 $2 $5 $4/;
+  $this->{header}="From: $this->{from}\015\012".
+                  "To: $this->{to}\015\012".
+                  "Subject: $sub2\015\012".
+                  "X-Assp-Report: YES\015\012".
+                  "Date: $date $tz\015\012";
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub RMhelo {
@@ -4852,18 +4849,8 @@ Host: assp.sourceforge.net
 
 ";
    }
-
-##   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
-##   unless ($s) {
-##    mlog(0,'unable to connect to greylist server');
-##    waitTaskDelay(0,3600);
-##    return cede('L3'); L3:
-##    next;
-##   }
-
    return call('L3',newConnect($peeraddress,2)); L3:
-   $s=shift;
-   unless ($s) {
+   unless ($s=shift) {
     if ($s==0) {
      mlog(0,'timeout while connecting to greylist server');
     } else {
@@ -4873,7 +4860,6 @@ Host: assp.sourceforge.net
     return cede('L4'); L4:
     next;
    }
-
    open(GREYTEMP,">$base/$greylist.tmp");
    binmode(GREYTEMP);
    print $s $connect;
@@ -4946,18 +4932,8 @@ sub taskUploadStats {
     $connect="POST /cgi-bin/upload.pl HTTP/1.1
   Host: assp.sourceforge.net";
    }
-
-##   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
-##   unless ($s) {
-##    mlog(0,'unable to connect to stats server');
-##    waitTaskDelay(0,3600);
-##    return cede('L3'); L3:
-##    next;
-##   }
-
    return call('L3',newConnect($peeraddress,2)); L3:
-   $s=shift;
-   unless ($s) {
+   unless ($s=shift) {
     if ($s==0) {
      mlog(0,'timeout while connecting to stats server');
     } else {
@@ -4967,7 +4943,6 @@ sub taskUploadStats {
     return cede('L3'); L3:
     next;
    }
-
    (%UploadStats)=();
    %tots=statsTotals();
    $UploadStats{starttime}=$Stats{starttime};
@@ -5902,6 +5877,7 @@ sub newConnect {
    if (getTaskWaitResult(0)) {
     return $sock;
    } else {
+    close $sock;
     return 0;
    }
   } else {
@@ -6430,7 +6406,7 @@ sub new {
            udp_maxlen  => 4000,
            server      => '127.0.0.1'};
  bless $self, $class;
- foreach my $key(keys %args) {
+ foreach my $key (keys %args) {
   defined($self->{$key}) or return "Invalid key: $key";
   $self->{$key}=$args{$key};
  }
@@ -6602,7 +6578,7 @@ sub decode_packet {
  # need to determine which domain
  # sent the packet.
  my @question=$packet->question;
- foreach my $question(@question) {
+ foreach my $question (@question) {
   my $domain=$question->qname;
   $domain=~s/\Q$target\E\.//;
   return($domain, undef);
