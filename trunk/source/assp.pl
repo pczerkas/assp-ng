@@ -639,10 +639,15 @@ sub taskNewSMTPConnection {
     next;
    }
    binmode($client);
-   $server=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$destination,Timeout=>2);
+   return call('L2',newConnect($destination,2)); L2:
+   $server=shift;
    unless ($server) {
     $client->close();
-    mlog(0,"couldn't create server socket to $destination -- aborting connection");
+    if ($server==0) {
+     mlog(0,"timeout while connecting to $destination -- aborting connection");
+    } else {
+     mlog(0,"couldn't create server socket to $destination -- aborting connection");
+    }
     next;
    }
    binmode($server);
@@ -739,7 +744,7 @@ sub NewSimSMTPConnection {
  # check for updates each 60 seconds
  my $time=time;
  my $client=$fh; # accept()
- $server=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2);
+ $server=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2); #todo
  unless ($server) {
   mlog(0,"couldn't create server socket to $smtpDestination -- aborting SM connection");
   return;
@@ -3587,7 +3592,7 @@ sub checkHeader {
 # prepare ClamAV COMMAND & STREAM connections
 sub prepareClamAV {
  my $fh;
- my ($this,$s,$buf,$resp,$destination,$st);
+ my ($this,$s,$buf,$resp,$dest,$st);
  my $sref=$Tasks{$CurTaskID}->{prepareClamAV}||=[sub{
   $fh=shift;
  },sub{&jump;
@@ -3595,18 +3600,32 @@ sub prepareClamAV {
   return unless $AvUseClamAV;
   return if !$Avlocal && $this->{mailfromlocal};
   return unless needCheck($fh,$viriColl);
-  $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$AvDestination,Timeout=>2);
+
+##  $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$AvDestination,Timeout=>2);
+##  unless ($s) {
+##   mlogCond($fh,"couldn't create command socket to $AvDestination -- aborting ClamAV scan",$AvLog);
+##   return;
+##  }
+
+  return call('L1',newConnect($AvDestination,2)); L1:
+  $s=shift;
   unless ($s) {
-   mlogCond($fh,"couldn't create command socket to $AvDestination -- aborting ClamAV scan",$AvLog);
+   if ($s==0) {
+    mlogCond($fh,"timeout while connecting to $AvDestination -- aborting ClamAV scan",$AvLog);
+   } else {
+    mlogCond($fh,"couldn't create command socket to $AvDestination -- aborting ClamAV scan",$AvLog);
+   }
    return;
   }
-  waitTaskWrite(0,$s,10);
-  return cede('L1'); L1:
-  unless (getTaskWaitResult(0)) {
-   mlogCond($fh,'timeout while sending command -- aborting ClamAV scan',$AvLog);
-   close $s;
-   return;
-  }
+
+##  waitTaskWrite(0,$s,10);
+##  return cede('L1'); L1:
+##  unless (getTaskWaitResult(0)) {
+##   mlogCond($fh,'timeout while sending command -- aborting ClamAV scan',$AvLog);
+##   close $s;
+##   return;
+##  }
+
   $buf="STREAM\n";
   unless ($s->syswrite($buf,length($buf))>0) {
    mlogCond($fh,'disconnected while sending command -- aborting ClamAV scan',$AvLog);
@@ -3628,15 +3647,29 @@ sub prepareClamAV {
   }
   chomp($buf);
   if (($resp)=$buf=~/^PORT (\d+)/) {
-   $destination=$AvDestination;
-   $destination=~s/^(.*?)(?::\d+)?$/$1:$resp/;
-   $st=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$destination,Timeout=>2);
+   $dest=$AvDestination;
+   $dest=~s/^(.*?)(?::\d+)?$/$1:$resp/;
+
+##   $st=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$dest,Timeout=>2);
+##   unless ($st) {
+##    mlogCond($fh,"couldn't create stream socket to $dest -- aborting ClamAV scan",$AvLog);
+##    close $s;
+##    return;
+##   }
+
+   return call('L3',newConnect($dest,2)); L3:
+   $st=shift;
    unless ($st) {
-    mlogCond($fh,"couldn't create stream socket to $destination -- aborting ClamAV scan",$AvLog);
+    if ($st==0) {
+     mlogCond($fh,"timeout while connecting to $dest -- aborting ClamAV scan",$AvLog);
+    } else {
+     mlogCond($fh,"couldn't create stream socket to $dest -- aborting ClamAV scan",$AvLog);
+    }
     close $s;
     return;
    }
-   mlogCond($fh,"connected to ClamAV stream socket at $destination",$AvLog);
+
+   mlogCond($fh,"connected to ClamAV stream socket at $dest",$AvLog);
    # all connections are prepared
    $SMTPSessions{$this->{sfh}}->{clamdfh}=$s; # command fh
    $SMTPSessions{$this->{sfh}}->{clamdstfh}=$st; # stream fh
@@ -4231,7 +4264,7 @@ sub forwardSpam {
   foreach my $a (split(' ',$Con{$fh}->{rcpt})) { $c++ if matchSL($a,'ccFilter'); }
   return unless $c;
  }
- my $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2);
+ my $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2); #todo
  unless ($s) {
   mlog(0,"couldn't create server socket to $smtpDestination -- aborting CC connection");
   return;
@@ -4819,20 +4852,35 @@ Host: assp.sourceforge.net
 
 ";
    }
-   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
+
+##   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
+##   unless ($s) {
+##    mlog(0,'unable to connect to greylist server');
+##    waitTaskDelay(0,3600);
+##    return cede('L3'); L3:
+##    next;
+##   }
+
+   return call('L3',newConnect($peeraddress,2)); L3:
+   $s=shift;
    unless ($s) {
-    mlog(0,'unable to connect to greylist server');
+    if ($s==0) {
+     mlog(0,'timeout while connecting to greylist server');
+    } else {
+     mlog(0,'couldn\'t create socket to greylist server');
+    }
     waitTaskDelay(0,3600);
-    return cede('L3'); L3:
+    return cede('L4'); L4:
     next;
    }
+
    open(GREYTEMP,">$base/$greylist.tmp");
    binmode(GREYTEMP);
    print $s $connect;
    $len=0;
    while (1) {
     waitTaskRead(0,$s,7);
-    return cede('L4'); L4:
+    return cede('L5'); L5:
     next unless getTaskWaitResult(0);
     ($buf)=();
     unless ($s->sysread($buf,4096)>0) {
@@ -4898,13 +4946,28 @@ sub taskUploadStats {
     $connect="POST /cgi-bin/upload.pl HTTP/1.1
   Host: assp.sourceforge.net";
    }
-   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
+
+##   $s=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$peeraddress,Timeout=>2);
+##   unless ($s) {
+##    mlog(0,'unable to connect to stats server');
+##    waitTaskDelay(0,3600);
+##    return cede('L3'); L3:
+##    next;
+##   }
+
+   return call('L3',newConnect($peeraddress,2)); L3:
+   $s=shift;
    unless ($s) {
-    mlog(0,'unable to connect to stats server');
+    if ($s==0) {
+     mlog(0,'timeout while connecting to stats server');
+    } else {
+     mlog(0,'couldn\'t create socket to stats server');
+    }
     waitTaskDelay(0,3600);
     return cede('L3'); L3:
     next;
    }
+
    (%UploadStats)=();
    %tots=statsTotals();
    $UploadStats{starttime}=$Stats{starttime};
@@ -5819,6 +5882,34 @@ sub newListen {
   return undef;
  }
  return $s;
+}
+
+# make non-blocking socket connect
+sub newConnect {
+ my ($dest,$timeout);
+ my ($sock,$addr,$port);
+ my $sref=$Tasks{$CurTaskID}->{newConnect}||=[sub{
+  ($dest,$timeout)=@_;
+ },sub{&jump;
+  $sock=new IO::Socket::INET(Proto=>'tcp');
+  if ($sock) {
+   $sock->blocking(0);
+   ioctl($sock,0x8004667e,pack('L',1)) if $^O eq 'MSWin32';
+   ($addr,$port)=$dest=~/^(.*?)(?::(\d+))?$/;
+   $sock->connect($port,inet_aton($addr));
+   waitTaskWrite(0,$sock,$timeout);
+   return cede('L1'); L1:
+   if (getTaskWaitResult(0)) {
+    return $sock;
+   } else {
+    return 0;
+   }
+  } else {
+   return undef;
+  }
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub openDatabases {
