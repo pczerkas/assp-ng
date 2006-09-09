@@ -4022,7 +4022,7 @@ sub checkRateLimitBlock {
  my $this=$Con{$fh};
  my $ip=$this->{ip};
  my $port=$this->{port};
- # also check for entries, when $RateLimitUseNetblocks was enabled
+ # also check for such entries, when $RateLimitUseNetblocks was enabled
  my $recs=$RateLimit{$ip} || $RateLimit{ipNetwork($ip,24)};
  my @a=split("\003",$recs);
  my ($added,$blocked,$reason)=split("\004",shift @a);
@@ -4449,7 +4449,7 @@ sub spamReport {
 # we're getting the body of a spam/ham report
 sub spamReportBody {
  my ($fh,$l);
- my ($this,$sub);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{spamReportBody}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -4460,8 +4460,7 @@ sub spamReportBody {
    # we're done -- write the file & clean up
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    return call('L1',spamReportExec($fh)); L1:
-   $sub=shift;
-   return call('L2',ReturnMail($fh," $sub")) unless $NoHaikuCorrection; L2:
+   newTask(ReturnMail($fh,' '.(shift)),'NORM',0,'S') unless $NoHaikuCorrection;
    doneStats($fh,1,'reports');
    stateReset($fh);
    sendque($this->{friend},"RSET\015\012",1);
@@ -4583,7 +4582,7 @@ sub listReportBody {
    # mail summary report
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    $nhl=(($this->{reporttype} & 4)==0) ? $NoHaikuWhitelist : $NoHaikuRedlist;
-   return call('L1',ReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012")) unless $nhl; L1:
+   newTask(ReturnMail($fh,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012"),'NORM',0,'S') unless $nhl;
    delete $this->{report};
    doneStats($fh,1,'reports');
    stateReset($fh);
@@ -4639,11 +4638,11 @@ sub listReportExec {
 }
 
 sub ReturnMail {
- my ($fh,$sub,$body);
+ my ($fh,$sub,$body)=@_;
+ my $type=$Con{$fh}->{reporttype};
+ my $to=$Con{$fh}->{mailfrom};
  my ($this,$file,$sub2,$date,$tz);
- my $sref=$Tasks{$CurTaskID}->{ReturnMail}||=[sub{
-  ($fh,$sub,$body)=@_;
- },sub{&jump;
+ return coro(sub{&jump;
   return call('L1',newConnect($smtpDestination,2)); L1:
   unless ($s=shift) {
    if ($s==0) {
@@ -4662,14 +4661,14 @@ sub ReturnMail {
   $this->{sfh}=$s;
   slog($s,"(connected $smtpDestination)",1,'I');
   $this->{from}=$EmailFrom;
-  $this->{to}=$Con{$fh}->{mailfrom};
+  $this->{to}=$to;
   $file='data/reports/';
-  $file.=($Con{$fh}->{reporttype}==0) ? 'spamreport.txt' :
-         ($Con{$fh}->{reporttype}==1) ? 'notspamreport.txt' :
-         ($Con{$fh}->{reporttype}==2) ? 'whitereport.txt' :
-         ($Con{$fh}->{reporttype}==3) ? 'whiteremovereport.txt' :
-         ($Con{$fh}->{reporttype}==4) ? 'redreport.txt' :
-                                        'redremovereport.txt';
+  $file.=($type==0) ? 'spamreport.txt' :
+         ($type==1) ? 'notspamreport.txt' :
+         ($type==2) ? 'whitereport.txt' :
+         ($type==3) ? 'whiteremovereport.txt' :
+         ($type==4) ? 'redreport.txt' :
+                      'redremovereport.txt';
   open(F,"<$base/$file") || mlog(0,"couldn't open '$file' for mail report");
   local $/="\n";
   $sub2=<F>;
@@ -4686,10 +4685,9 @@ sub ReturnMail {
                   "Subject: $sub2\015\012".
                   "X-Assp-Report: YES\015\012".
                   "Date: $date $tz\015\012";
- }];
- &{$sref->[0]};
- return $sref->[1];
+ });
 }
+
 
 sub RMhelo {
  my ($fh,$l);
@@ -4710,7 +4708,7 @@ sub RMhelo {
 
 sub RMfrom {
  my ($fh,$l);
- my ($this,$fr);
+ my ($this,$from);
  my $sref=$Tasks{$CurTaskID}->{RMfrom}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -4720,8 +4718,8 @@ sub RMfrom {
   } elsif ($l=~/^ *250 /) {
    $this=$Con{$fh};
    $this->{getline}=\&RMrcpt;
-   $fr=$this->{from}=~/(<[^<>]+>)/ ? $1 : $this->{from};
-   sendque($fh,"MAIL FROM:$fr\015\012",1);
+   $from=$this->{from}=~/(<[^<>]+>)/ ? $1 : $this->{from};
+   sendque($fh,"MAIL FROM:$from\015\012",1);
   }
  }];
  &{$sref->[0]};
