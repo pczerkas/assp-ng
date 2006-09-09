@@ -45,6 +45,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
 
 @MyHeaders=('Received-Headers',
             'Delay',
+            'Received-RWL',
             'Received-SPF',
             'Received-RBL',
             'Received-URIBL',
@@ -1211,7 +1212,6 @@ sub doneConnection {
  my $this=$Con{$fh};
  my $addr=($this->{ip}).':'.($this->{port});
  if ($this->{simulating}) {
-##  delete $SocketCalls{$fh};
   return unless $this->{connected};
   if ($by) {
    slog($fh,"(closing connection to $addr)",1,'I');
@@ -1257,7 +1257,6 @@ sub addSimfh {
  $this->{port}=$port;
  $this->{getline}=$getline;
  $this->{friend}=$friend;
-## $SocketCalls{$fh}->{handler}=''; # empty
 }
 
 # sendque enques a string for a socket
@@ -2490,7 +2489,7 @@ sub finalizeMail {
       $this->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
       $this->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$this->{spamprob}) if $AddSpamProbHeader;
      }
-     collectMail($fh);
+     return call('L2',collectMail($fh)); L2:
  ##    forwardSpam($fh);
     }
    }
@@ -3295,12 +3294,6 @@ sub checkRWL {
   } else {
    ($skip)=();
    $ip=$this->{ip};
-
-##   unless (needCheck($fh,$RBLFailColl,$rblTestMode,$spamlover)) {
-##    mlogCond($fh,"RBL lookup skipped (unnecessary)",$RBLLog);
-##    $skip=1;
-##   } elsif (matchIP($ip,'noRWL')) {
-
    if (matchIP($ip,'noRWL')) {
     mlogCond($fh,"RWL lookup skipped (noRWL IP)",$RBLLog);
     $this->{myheader}.="X-Assp-Received-RWL: lookup skipped (noRWL IP); client-ip=$ip\015\012" if $AddRWLHeader;
@@ -4189,36 +4182,44 @@ sub getNewCollFileName {
 }
 
 sub collectMail {
- my $fh=shift;
- my $this=$Con{$fh};
- # 1 = notspam folder, 2 = notspam folder & CC, 3 = mailok folder, 4 = mailok folder & CC, 5 = discard, 6 = discard & CC
- # 7 = spam folder, 8 = spam folder & CC, 9 = discard, 10 = discard & CC, 11 = virii folder, 12 = virii folder & CC
- my @dirs=('',$notspamlog,$notspamlog,$incomingOkMail,$incomingOkMail,'','',$spamlog,$spamlog,'','',$viruslog,$viruslog);
- my $maillog=$dirs[$this->{coll}];
- return unless $maillog;
- my $fn=getNewCollFileName($maillog);
- $fn="$maillog/$fn$maillogExt";
- if (open(F,">$base/$fn")) {
-  binmode(F);
-  print F $this->{header};
-  # wrap long header lines
-  headerWrap($this->{myheader});
-  # sort & merge our header
-  foreach my $h (@MyHeaders) {
-   print F $1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
+ my $fh;
+ my ($this,@dirs,$maillog,$fn,$h,$det,$sf,$flags);
+ my $sref=$Tasks{$CurTaskID}->{collectMail}||=[sub{
+  $fh=shift;
+ },sub{&jump;
+  $this=$Con{$fh};
+  # 1 = notspam folder, 2 = notspam folder & CC, 3 = mailok folder, 4 = mailok folder & CC, 5 = discard, 6 = discard & CC
+  # 7 = spam folder, 8 = spam folder & CC, 9 = discard, 10 = discard & CC, 11 = virii folder, 12 = virii folder & CC
+  @dirs=('',$notspamlog,$notspamlog,$incomingOkMail,$incomingOkMail,'','',$spamlog,$spamlog,'','',$viruslog,$viruslog);
+  $maillog=$dirs[$this->{coll}];
+  return unless $maillog;
+  $fn=getNewCollFileName($maillog);
+  $fn="$maillog/$fn$maillogExt";
+  if (open(F,">$base/$fn")) {
+   binmode(F);
+   print F $this->{header};
+   # wrap long header lines
+   headerWrap($this->{myheader});
+   # sort & merge our header
+   foreach $h (@MyHeaders) {
+    print F $1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
+   }
+   print F "\015\012$this->{body}";
+   close F;
+   # update Corpus cache
+   return call('L1',corpusDetails($fn,1)); L1:
+   $det=shift;
+   $sf=$this->{spamfound};
+   $flags=$det->[4];
+   $flags|=4 if $sf; # set 'is-spam' bit
+   $flags|=8 unless $sf & 4; # set 'passed-message' bit
+   return call('L2',corpusSetFlags($fn,$flags)); L2:
+  } else {
+   mlog($fh,"error opening maillog '$base/$fn': $!");
   }
-  print F "\015\012$this->{body}";
-  close F;
-  # update Corpus cache
-  my $det=corpusDetails($fn,1); ##todo
-  my $sf=$this->{spamfound};
-  my $flags=$det->[4];
-  $flags|=4 if $sf; # set 'is-spam' bit
-  $flags|=8 unless $sf & 4; # set 'passed-message' bit
-  corpusSetFlags($fn,$flags,0); ## todo
- } else {
-  mlog($fh,"error opening maillog '$base/$fn': $!");
- }
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 #####################################################################################
@@ -4458,8 +4459,9 @@ sub spamReportBody {
   if ($l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0) {
    # we're done -- write the file & clean up
    slog($fh,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
-   $sub=spamReportExec($fh);
-   return call('L1',ReturnMail($fh," $sub")) unless $NoHaikuCorrection; L1:
+   return call('L1',spamReportExec($fh)); L1:
+   $sub=shift;
+   return call('L2',ReturnMail($fh," $sub")) unless $NoHaikuCorrection; L2:
    doneStats($fh,1,'reports');
    stateReset($fh);
    sendque($this->{friend},"RSET\015\012",1);
@@ -4470,50 +4472,57 @@ sub spamReportBody {
 }
 
 sub spamReportExec {
- my $fh=shift;
- my $this=$Con{$fh};
- my ($sub)=$this->{body}=~/^Subject$HeaderSepRe($HeaderValueRe)/imo;
- $sub=decodeMimeWords($sub);
- # strip report message headers
- $this->{body}=~s/^$HeaderAllCRLFRe*$HeaderCRLFRe//o;
- if ($this->{body}=~/^Received$HeaderSepValueCRLFRe/imo) { # report contains attached message
-  # use subject of attached message
+ my $fh;
+ my ($this,$sub,$ah,$maillog,$fn);
+ my $sref=$Tasks{$CurTaskID}->{spamReportExec}||=[sub{
+  $fh=shift;
+ },sub{&jump;
+  $this=$Con{$fh};
   ($sub)=$this->{body}=~/^Subject$HeaderSepRe($HeaderValueRe)/imo;
-  $this->{body}=~s/^.*?(Received$HeaderSepValueCRLFRe)/$1/iso;
-  # clear out some headers
-  $this->{body}=~s/^X-Assp-$HeaderAllCRLFRe//gimo;
-  $this->{body}=~s/^X-Intended-For$HeaderSepValueCRLFRe//gimo;
- } else { # report contains quoted message
-  # remove 'forwarded' mark (Fw:) from subject
-  $sub=~s/Fw: *(.*)/$1/is;
-  my $ah; # artificial header
-  $ah="From: <$1>\015\012" if $this->{body}=~/^.*?($EmailAdrRe\@$EmailDomainRe)/so;
-  $ah.="Subject: $sub\015\012" if $sub;
-  $this->{body}=~s/^.*?$HeaderCRLFRe((\w[^\015\012]*$HeaderCRLFRe)*Subject:)/$1/is;
-  $this->{body}=~s/^[>|:] *//gm; # strip quotation marks
-  $this->{body}="$ah\015\012".$this->{body} if $ah;
- }
- # remove the spamSubject from Subject: if present
- $this->{body}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $spamSubject;
- # remove the ccHamSubject from Subject: if present
- $this->{body}=~s/^Subject$HeaderSepRe$ccHamSubjectTagRE /Subject: /gim  if $ccHamSubject;
- # remove the ccSpamSubject from Subject: if present
- $this->{body}=~s/^Subject$HeaderSepRe$ccSpamSubjectTagRE /Subject: /gim  if $ccSpamSubject;
- # remove the ccBlockedSubject from Subject: if present
- $this->{body}=~s/^Subject$HeaderSepRe$ccBlockedSubjectTagRE /Subject: /gim  if $ccBlockedSubject;
- my $maillog=($this->{reporttype}==0) ? $correctedspam : $correctednotspam;
- my $fn;
- do {
-  $fn=int(100000000*rand());
-  $fn="$maillog/$fn$maillogExt";
- } while (-e "$base/$fn");
- open(F,">$base/$fn");
- binmode(F);
- print F $this->{body};
- close F;
- # update Corpus cache
- corpusDetails($fn,1); ##todo
- return $sub;
+  $sub=decodeMimeWords($sub);
+  # strip report message headers
+  $this->{body}=~s/^$HeaderAllCRLFRe*$HeaderCRLFRe//o;
+  if ($this->{body}=~/^Received$HeaderSepValueCRLFRe/imo) { # report contains attached message
+   # use subject of attached message
+   ($sub)=$this->{body}=~/^Subject$HeaderSepRe($HeaderValueRe)/imo;
+   $this->{body}=~s/^.*?(Received$HeaderSepValueCRLFRe)/$1/iso;
+   # clear out some headers
+   $this->{body}=~s/^X-Assp-$HeaderAllCRLFRe//gimo;
+   $this->{body}=~s/^X-Intended-For$HeaderSepValueCRLFRe//gimo;
+  } else { # report contains quoted message
+   # remove 'forwarded' mark (Fw:) from subject
+   $sub=~s/Fw: *(.*)/$1/is;
+   ($ah)=(); # artificial header
+   $ah="From: <$1>\015\012" if $this->{body}=~/^.*?($EmailAdrRe\@$EmailDomainRe)/so;
+   $ah.="Subject: $sub\015\012" if $sub;
+   $this->{body}=~s/^.*?$HeaderCRLFRe((\w[^\015\012]*$HeaderCRLFRe)*Subject:)/$1/is;
+   $this->{body}=~s/^[>|:] *//gm; # strip quotation marks
+   $this->{body}="$ah\015\012".$this->{body} if $ah;
+  }
+  # remove the spamSubject from Subject: if present
+  $this->{body}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $spamSubject;
+  # remove the ccHamSubject from Subject: if present
+  $this->{body}=~s/^Subject$HeaderSepRe$ccHamSubjectTagRE /Subject: /gim  if $ccHamSubject;
+  # remove the ccSpamSubject from Subject: if present
+  $this->{body}=~s/^Subject$HeaderSepRe$ccSpamSubjectTagRE /Subject: /gim  if $ccSpamSubject;
+  # remove the ccBlockedSubject from Subject: if present
+  $this->{body}=~s/^Subject$HeaderSepRe$ccBlockedSubjectTagRE /Subject: /gim  if $ccBlockedSubject;
+  $maillog=($this->{reporttype}==0) ? $correctedspam : $correctednotspam;
+  ($fn)=();
+  do {
+   $fn=int(100000000*rand());
+   $fn="$maillog/$fn$maillogExt";
+  } while (-e "$base/$fn");
+  open(F,">$base/$fn");
+  binmode(F);
+  print F $this->{body};
+  close F;
+  # update Corpus cache
+  return call('L1',corpusDetails($fn,1)); L1:
+  return $sub;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # we're receiving an email to manipulate addresses in the whitelist/redlist
