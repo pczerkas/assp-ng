@@ -455,7 +455,7 @@ sub RLIBTEventEnabled {
  return 0 if !$RateLimitSender && $name=~/^(?:senderValidatedLocal|senderUncheckedLocal|senderWhitelisted|senderValidatedRemote|senderUncheckedRemote|senderUnprocessed|senderForged|senderNoMX)$/;
  return 0 if !$RateLimitRcpt && $name=~/^(?:rcptValidated|rcptUnchecked|rcptSpamLover|rcptWhitelisted|rcptNotWhitelisted|rcptUnprocessed|rcptDelayed|rcptDelayedLate|rcptDelayedExpired|rcptEmbargoed|rcptSpamBucket)$/;
  return 0 if !$RateLimitPassed && $name=~/^(?:msgAnyHam|msgAnyPassedSpam|noprocessing|locals|whites|reds|bhams|spamlover|testspams)$/;
- return 0 if !$RateLimitBlocked && $name=~/^(?:msgAnyBlockedSpam|helolisted|senderfails|blacklisted|msgNoSRSBounce|spambucket|spffails|rblfails|malformed|uriblfails|bombs|scripts|viri|viridetected|bspams)$/;
+ return 0 if !$RateLimitBlocked && $name=~/^(?:msgAnyBlockedSpam|helolisted|senderfails|blacklisted|msgNoSRSBounce|spambucket|spffails|rblfails|malformed|uriblfails|bombs|scripts|viri|viridetected|bspams|msgServerRejected)$/;
  return 0 if !$RateLimitEmailInterface && $name=~/^(?:rcptReportSpam|rcptReportHam|rcptReportWhitelistAdd|rcptReportWhitelistRemove|rcptReportRedlistAdd|rcptReportRedlistRemove)$/;
  return 0 if !$RateLimitMisc && $name=~/^(?:rcptNonexistent|msgNoRcpt|rcptRelayRejected|msgMaxErrors|msgEarlytalker|msgDelayed|msgAborted)$/;
  return 1;
