@@ -41,7 +41,8 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
               'bombs' => 'bomb',
               'scripts' => 'script',
               'viri' => 'attachment',
-              'viridetected' => 'virus');
+              'viridetected' => 'virus',
+              'msgServerRejected' => 'rejected');
 
 @MyHeaders=('Received-Headers',
             'Delay',
@@ -639,7 +640,6 @@ sub taskNewSMTPConnection {
     mlog(0,'accept failed -- aborting connection');
     next;
    }
-##   binmode($client);
    return call('L2',newConnect($destination,2)); L2:
    unless ($server=shift) {
     if ($server==0) {
@@ -650,12 +650,10 @@ sub taskNewSMTPConnection {
     $client->close();
     next;
    }
-##   binmode($server);
    addfh($client,\&getLine,$server);
    $this=$Con{$client};
    $this->{isClient}=1;
    $this->{isRelay}=($fh==$Relay);
-   $this->{timeout}=$SMTPreadtimeout;
    $ip=$this->{ip};
    $port=$this->{port};
    $this->{mISPRE}=matchIP($ip,'ispip');
@@ -671,7 +669,7 @@ sub taskNewSMTPConnection {
    $this->{rcvd}="Received: from $ip ([$ip] helo=) by $myName; $tztime $tz\015\012";
    if ($sendNoopInfo) {
     addfh($server,\&skipok,$client);
-    $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName\015\012";
+    $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName";
    } else {
     addfh($server,\&reply,$client);
    }
@@ -754,7 +752,6 @@ sub NewSimSMTPConnection {
  $this->{connected}=1;
  $this->{isClient}=1;
  $this->{isRelay}=0;
- $this->{timeout}=0;
  $this->{mISPRE}=matchIP($ip,'ispip');
  $this->{mNLOGRE}=matchIP($ip,'noLog');
  $this->{mNRLRE}=matchIP($ip,'noRateLimit');
@@ -766,7 +763,7 @@ sub NewSimSMTPConnection {
  $this->{rcvd}="Received: from $ip ([$ip] helo=) by $myName; $tztime $tz\015\012";
  addfh($server,\&SMhelo,$client);
  if ($sendNoopInfo) {
-  $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName\015\012";
+  $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName";
  }
  $Con{$server}->{isServer}=1;
  $Con{$server}->{isRelay}=$this->{isRelay};
@@ -793,23 +790,32 @@ sub NewSimSMTPConnection {
 # with the $buf parameter, not sysread'ed from the socket
 sub taskSMTPInTraffic {
  my ($fh,$buf)=@_;
- my ($this,$sfh,$err,$len,$bn,$lbn,$l,$sb);
+ my ($this,$friend,$sfh,$timeout,$err,$len,$bn,$lbn,$l,$sb);
  return coro(sub{&jump;
   # note: $Con{$fh} may be deleted in $Con{$fh}->{getline}->() !!!
   $this=$Con{$fh};
+  $friend=$this->{friend};
   while ($fh->opened()) {
    waitTaskRead(0,$fh,7);
    return cede('L1'); L1:
    $sfh=$this->{sfh};
    unless (getTaskWaitResult(0)) {
-    next unless $this->{timeout};
+    if ($this->{isClient}) {
+     $timeout=$SMTPClientReadTimeout;
+    } elsif ($this->{isServer}) {
+     $timeout=$SMTPServerReadTimeout;
+    } else {
+     $timeout=0;
+    }
+    next unless $timeout && $this->{active};
 ##    last unless $fh->opened();
-    waitTaskRead(0,$fh,$this->{timeout}-7);
+    waitTaskRead(0,$fh,$timeout-7);
     return cede('L2'); L2:
     unless (getTaskWaitResult(0)) {
      # connection timed out
      return if checkRateLimit($sfh,'msgAborted',1,0)<0;
-     $err="client read timeout ($SMTPreadtimeout) -- dropping connection";
+     $err=$this->{isClient} ? 'client' : 'server';
+     $err.=" read timeout ($timeout) -- dropping connection";
      mlogCond($sfh,$err,1);
      $Con{$sfh}->{stats}='msgAborted';
      sendError($sfh,"($err)",1);
@@ -836,12 +842,12 @@ sub taskSMTPInTraffic {
     if ($len>=$sb) {
      addTrafStats($fh,$sb,0);
      # send the binary chunk on to the server
-     sendque($this->{friend},substr($this->{_},0,$sb,'')); # four-argument substr()
+     sendque($friend,substr($this->{_},0,$sb,'')); # four-argument substr()
      delete $this->{skipbytes};
     } else {
      addTrafStats($fh,$len,0);
      # send the binary chunk on to the server
-     sendque($this->{friend},$this->{_});
+     sendque($friend,$this->{_});
      $this->{skipbytes}=$sb-=$len;
      $this->{_}='';
     }
@@ -873,9 +879,10 @@ sub taskSMTPInTraffic {
 
 sub taskSMTPOutTraffic {
  my $fh=shift;
- my ($this,$written);
+ my ($this,$friend,$written);
  return coro(sub{&jump;
   $this=$Con{$fh};
+  $friend=$this->{friend};
   while ($fh->opened()) {
    waitTaskWrite(0,$fh,7);
    return cede('L1'); L1:
@@ -884,10 +891,7 @@ sub taskSMTPOutTraffic {
     $written=syswrite($fh,$this->{outgoing},$OutgoingBufSize);
     substr($this->{outgoing},0,$written,''); # four-argument substr()
     # test for highwater mark
-    if ($this->{paused} && length($this->{outgoing})<$OutgoingBufSize && $written>0) {
-     resumeTask($Con{$this->{friend}}->{itid});
-     $this->{paused}=0;
-    }
+    resumeTask($Con{$friend}->{itid}) if getTaskState($Con{$friend}->{itid}) eq 'SUSPEND' && length($this->{outgoing})<$OutgoingBufSize && $written>0;
    }
    suspendTask(0) unless length($this->{outgoing});
   }
@@ -1144,11 +1148,12 @@ sub addSession {
 sub doneSession {
  my ($fh,$by)=@_;
  my $this=$Con{$fh};
+ my $friend=$this->{friend};
  my $sfh=$this->{sfh};
  my $sess=$SMTPSessions{$sfh};
  # close connections
  doneConnection($fh,$by);
- doneConnection($this->{friend},1);
+ doneConnection($friend,1);
  doneTmpBody($fh,3); # close & unlink tmp message body file
  doneClamAV($fh,3); # close COMMAND & STREAM
  # session stats
@@ -1200,7 +1205,7 @@ sub doneSession {
   # remove SMTP session
   delete $SMTPSessions{$sfh};
   # delete the Connection data
-  delete $Con{$this->{friend}};
+  delete $Con{$friend};
   delete $Con{$fh};
  }
 }
@@ -1261,9 +1266,10 @@ sub addSimfh {
 
 # sendque enques a string for a socket
 sub sendque {
- my ($fh,$message,$slog)=@_;
+ my ($fh,$message,$last,$slog)=@_;
  return unless $fh; # may have been closed
  my $this=$Con{$fh};
+ my $friend=$this->{friend};
  if ($this->{simulating}) {
   if ($this->{connected}) {
    $this->{outgoing}.=$message;
@@ -1274,18 +1280,24 @@ sub sendque {
   if ($fh->connected()) {
    $this->{outgoing}.=$message;
    addTrafStats($fh,0,length($message));
+   suspendTask($Con{$friend}->{itid}) if getTaskState($Con{$friend}->{itid}) eq 'RUN' && length($this->{outgoing})>$OutgoingBufSize;
    resumeTask($this->{otid});
-   if (!$this->{paused} && length($this->{outgoing})>$OutgoingBufSize) {
-    suspendTask($Con{$this->{friend}}->{itid});
-    $this->{paused}=1;
-   }
    slog($fh,$message,1) if $slog;
-  } elsif ($this->{paused}) {
+  } elsif (getTaskState($Con{$friend}->{itid}) eq 'SUSPEND') {
    # unpause friend if $fh disconnected
-   resumeTask($Con{$this->{friend}}->{itid});
-   $this->{paused}=0;
+   resumeTask($Con{$friend}->{itid});
+  }
+  if ($last) {
+   $this->{active}=1;
+   $Con{$friend}->{active}=0;
   }
  }
+}
+
+sub sayque {
+ my ($fh,$message)=@_;
+ $message=~s/\015?\012|\015//g;
+ sendque($fh,"$message\015\012",1,1);
 }
 
 #####################################################################################
@@ -1322,18 +1334,17 @@ sub stateReset {
 # a line of input has been received from the smtp client
 sub getLine {
  my ($fh,$l);
- my ($this,$server,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply,$np,$wl);
+ my ($this,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply,$np,$wl);
  my $sref=$Tasks{$CurTaskID}->{getLine}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
-  $server=$this->{friend};
   $this->{inenvelope}=1;
   slog($fh,$l,0);
   unless ($l=~/^[\040-\176]*\015\012/) {
    delayWhiteExpire($fh);
    mlogCond($fh,"invalid character",1);
-   sendque($fh,"553 Invalid character\015\012",1);
+   sayque($fh,'553 Invalid character');
    checkMaxErrors($fh,'',1,0)<0;
    return;
   }
@@ -1422,7 +1433,7 @@ sub getLine {
       delayWhiteExpire($fh);
       return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
       mlogCond($fh,"malformed address: '$RO_e'",1);
-      sendque($fh,"553 Malformed address: $RO_e\015\012",1);
+      sayque($fh,"553 Malformed address: $RO_e");
       checkMaxErrors($fh,'rcptRelayRejected',0,1);
       return;
      }
@@ -1453,7 +1464,7 @@ sub getLine {
         } else {
          return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
          mlogCond($fh,"user not local; please try <$tt> directly",1);
-         sendque($fh,"551 5.7.1 User not local; please try <$tt> directly\015\012",1);
+         sayque($fh,"551 5.7.1 User not local; please try <$tt> directly");
          checkMaxErrors($fh,'rcptRelayRejected',1,0);
          return;
         }
@@ -1467,7 +1478,7 @@ sub getLine {
     } elsif (!$this->{isRelay} && $ec=~/^SRS[01][=+-].*/i) {
      return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
      mlogCond($fh,"SRS only supported in DSN: $e",1);
-     sendque($fh,"550 5.7.6 SRS only supported in DSN\015\012",1);
+     sayque($fh,'550 5.7.6 SRS only supported in DSN');
      checkMaxErrors($fh,'rcptRelayRejected',1,0);
      return;
     }
@@ -1477,7 +1488,7 @@ sub getLine {
     delayWhiteExpire($fh);
     return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
     mlogCond($fh,"relay attempt blocked for (evil): $e",1);
-    sendque($fh,"$NoRelaying\015\012",1);
+    sayque($fh,$NoRelaying);
     checkMaxErrors($fh,'rcptRelayRejected',0,1);
     return;
    } elsif ($e=~/([a-z\-_\.]+)!([a-z\-_\.]+)$/i) {
@@ -1494,7 +1505,7 @@ sub getLine {
     delayWhiteExpire($fh);
     return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
     mlogCond($fh,"relay attempt blocked for (parsing): $e",1);
-    sendque($fh,"$NoRelaying\015\012",1);
+    sayque($fh,$NoRelaying);
     checkMaxErrors($fh,'rcptRelayRejected',0,1);
     return;
    }
@@ -1503,7 +1514,7 @@ sub getLine {
     delayWhiteExpire($fh);
     return if checkRateLimit($fh,'rcptRelayRejected',1,0)<0;
     mlogCond($fh,"relay attempt blocked for: $u$h",1);
-    sendque($fh,"$NoRelaying\015\012",1);
+    sayque($fh,$NoRelaying);
     checkMaxErrors($fh,'rcptRelayRejected',0,1);
     return;
    }
@@ -1573,7 +1584,7 @@ sub getLine {
      slog($fh,"($err)",0,'I');
      $reply=$InvalidRecipientError ? $InvalidRecipientError : '550 5.1.1 User unknown';
      $reply=~s/EMAILADDRESS/$u$h/g;
-     sendque($fh,"$reply\015\012",1);
+     sayque($fh,$reply);
      checkMaxErrors($fh,'rcptNonexistent',1,1);
      return;
     }
@@ -1622,8 +1633,7 @@ sub getLine {
     if ($this->{delayed}) {
      return if checkRateLimit($fh,'msgDelayed',1,1)<0;
      mlogCond($fh,'DATA phase delayed',$DelayLog);
-     $reply=$DelayError ? $DelayError : '451 4.7.1 Please try again later';
-     sendque($fh,"$reply\015\012",1);
+     sayque($fh,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
      doneStats($fh,0,'msgDelayed');
      return;
     }
@@ -1636,8 +1646,7 @@ sub getLine {
    if (!$this->{isRelay} && $this->{isbounce} && $this->{delayed}) {
     return if checkRateLimit($fh,'msgDelayed',1,1)<0;
     mlogCond($fh,'bounce delayed',1);
-    $reply=$DelayError ? $DelayError : '451 4.7.1 Please try again later';
-    sendque($fh,"$reply\015\012",1);
+    sayque($fh,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
     doneStats($fh,0,'msgDelayed');
     return;
    } else {
@@ -1646,7 +1655,7 @@ sub getLine {
   } elsif ($l=~/^ *RSET/i) {
    stateReset($fh);
   }
-  sendque($server,$l,1);
+  sayque($this->{friend},$l);
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -1662,7 +1671,7 @@ sub preHeader {
   # check for 5xx server response after the DATA command
   if ($this->{inerror}) {
    slog($fh,$l,0);
-   sendque($this->{friend},$l,1);
+   sayque($this->{friend},$l);
    stateReset($fh);
    return;
   }
@@ -2190,7 +2199,7 @@ sub getBodyDone {
 
 # this is spam, lets see if its test mode or spamlover.
 sub thisIsSpam {
- my ($fh,$reason,$error,$testmode,$spamlover,$coll,$stats,$prob)=@_;
+ my ($fh,$reason,$error,$testmode,$spamlover,$coll,$stats,$prob,$inreply)=@_;
  my $this=$Con{$fh};
  $this->{stats}=$this->{tag}=$stats;
  $this->{error}=$error;
@@ -2204,7 +2213,7 @@ sub thisIsSpam {
     $this->{myheader}.='X-Assp-Spam-Reason: '.ucfirst($reason)."\015\012";
    }
   }
-  slog($fh,'('.($this->{indata} ? needEs($this->{maillength},' byte','s').' received; ' : '')."$reason)",0,'I');
+  slog($fh,'('.($this->{indata} && !$inreply ? needEs($this->{maillength},' byte','s').' received; ' : '')."$reason)",0,'I');
  }
  if ($this->{spamfound} & 4) {
   mlogCond($fh,$reason,1);
@@ -2222,7 +2231,7 @@ sub thisIsSpam {
   mlogCond($fh,$reason,1);
   delayWhiteExpire($fh);
   # detatch the friend -- closing connection to server & disregarding message
-  doneConnection($this->{friend},1);
+  doneConnection($this->{friend},1) unless $inreply;
   $this->{spamfound}|=4; # set spam bit in spamfound flag
  }
 }
@@ -2294,11 +2303,12 @@ sub doneTmpBody {
 
 sub pass {
  my ($fh,$done);
- my ($this,$sf,$skip,$rcvdh,$header,$sub,$e,$tt,$tt2,$srs,$h);
+ my ($this,$server,$sf,$skip,$rcvdh,$header,$sub,$e,$tt,$tt2,$srs,$h);
  my $sref=$Tasks{$CurTaskID}->{pass}||=[sub{
   ($fh,$done)=@_;
  },sub{&jump;
   $this=$Con{$fh};
+  $server=$this->{friend};
   $sf=$this->{spamfound};
   $skip=$this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok};
   ($rcvdh)=();
@@ -2364,7 +2374,7 @@ sub pass {
     $header.=$1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
    }
   }
-  sendque($this->{friend},"$header\015\012");
+  sendque($server,"$header\015\012");
   prepareTmpBody($fh);
   # send/store body
   if ($done) {
@@ -2372,7 +2382,7 @@ sub pass {
    return if (shift)<0;
   } else {
    $this->{getline}=\&continueBody;
-   sendque($this->{friend},$this->{body});
+   sendque($server,$this->{body});
    addTmpBody($fh,$this->{body});
   }
  }];
@@ -2383,11 +2393,12 @@ sub pass {
 # inlined and partially unrolled for speed
 sub continueBody {
  my ($fh,$l);
- my ($this,$bn,$len,$done);
+ my ($this,$server,$bn,$len,$done);
  my $sref=$Tasks{$CurTaskID}->{continueBody}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
+  $server=$this->{friend};
   $this->{skipCheckLine}=1;
   if (needMsgVerify($fh)) {
    return call('L1',needExtraCheck($fh,$MsgVerifyExtra,$this->{noprocessing},$this->{white})); L1:
@@ -2401,7 +2412,7 @@ sub continueBody {
    return call('L3',finalizeMail($fh,$l)); L3:
    return if (shift)<0;
   } else {
-   sendque($this->{friend},$l);
+   sendque($server,$l);
    addTmpBody($fh,$l);
   }
   # it's possible that the connection can be deleted
@@ -2421,7 +2432,7 @@ sub continueBody {
     return call('L5',finalizeMail($fh,$l)); L5:
     return if (shift)<0;
    } else {
-    sendque($this->{friend},$l);
+    sendque($server,$l);
     addTmpBody($fh,$l);
    }
    # it's possible that the connection can be deleted
@@ -2442,7 +2453,7 @@ sub continueBody {
      return call('L7',finalizeMail($fh,$this->{_})); L7:
      return if (shift)<0;
     } else {
-     sendque($this->{friend},$this->{_});
+     sendque($server,$this->{_});
      addTmpBody($fh,$this->{_});
     }
     $this->{_}='' if $Con{$fh}; # '$this' may be not valid -- check $Con{$fh} instead
@@ -2475,36 +2486,12 @@ sub finalizeMail {
   } else {
    return -1 if checkRateLimit($fh,'msgAnyHam',0,1)<0;
   }
-  unless ($this->{isRelay}) {
-   $logCount[$this->{coll}]++;
-   if ($logCount[$this->{coll}]>=$logFreq[$this->{coll}]) {
-    $logCount[$this->{coll}]=0;
-    unless ($this->{simulating}) {
-     # fix {myheader} if spam was found after MaxBytes has been reached
-     unless ($this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok}) {
-      # clear out some existing headers
-      $this->{myheader}=~s/^X-Assp-Spam$HeaderSepValueCRLFRe//gimo;
-      $this->{myheader}=~s/^X-Assp-Spam-Prob$HeaderSepValueCRLFRe//gimo;
-      # add corrected headers
-      $this->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
-      $this->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$this->{spamprob}) if $AddSpamProbHeader;
-     }
-     return call('L2',collectMail($fh)); L2:
-     newTask(taskForwardMail($fh),'NORM','S');
-    }
-   }
-  }
   if ($sf & 4) {
    # ignore what was sent & give reason at the end
    sendError($fh,$this->{error});
    return 0;
   }
-  mlogCond($fh,$this->{mlogbuf},1);
-  sendque($this->{friend},$l) unless $this->{simulating};
-  doneStats($fh,1);
-  doneTmpBody($fh,2); # unlink tmp message body file
-  doneClamAV($fh,3); # close COMMAND & STREAM
-  stateReset($fh);
+  sendque($this->{friend},$l,1) unless $this->{simulating};
   return 1;
  }];
  &{$sref->[0]};
@@ -2539,7 +2526,7 @@ sub skipok {
 # messages from the server get relayed to the client
 sub reply {
  my ($fh,$l);
- my ($this,$client,$e,$err,$reply,$delay,$buf,$len,$ip,$port);
+ my ($this,$client,$e,$err,$reply,$delay,$buf,$len,$ip,$port,$sf);
  my $sref=$Tasks{$CurTaskID}->{reply}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
@@ -2558,7 +2545,7 @@ sub reply {
    slog($client,"($err)",0,'I');
    $reply=$InvalidRecipientError ? $InvalidRecipientError : '550 5.1.1 User unknown';
    $reply=~s/EMAILADDRESS/$e/g;
-   sendque($client,"$reply\015\012",1);
+   sayque($client,$reply);
    $Stats{rcptUnchecked}-- if $Stats{rcptUnchecked}>0;
    checkMaxErrors($client,'rcptNonexistent',1,1);
    return;
@@ -2574,7 +2561,7 @@ sub reply {
   } elsif ($l=~/^220/) {
    # proxy client IP to server in NOOP command
    if ($this->{noop}) {
-    sendque($fh,$this->{noop},1);
+    sayque($fh,$this->{noop});
     delete $this->{noop};
    }
    # early (on-connect) checks
@@ -2636,9 +2623,46 @@ sub reply {
    }
    return if checkMaxErrors($client,'',1,1)<0;
   }
+  if ($Con{$client}->{indata}) {
+   # check server response to DATA
+   if ($Con{$client}->{inerror}) {
+    thisIsSpam($client,'message rejected by server','',0,0,$serverRejectedColl,'msgServerRejected',1,1); # keep server connection open
+    return if checkRateLimit($client,'msgServerRejected',0,0)<0;
+    return if checkRateLimit($client,'msgAnyBlockedSpam',0,0)<0;
+   }
+   $sf=$Con{$client}->{spamfound};
+   unless ($Con{$client}->{isRelay}) {
+    $logCount[$Con{$client}->{coll}]++;
+    if ($logCount[$Con{$client}->{coll}]>=$logFreq[$Con{$client}->{coll}]) {
+     $logCount[$Con{$client}->{coll}]=0;
+     unless ($Con{$client}->{simulating}) {
+      # fix {myheader} if spam was found after MaxBytes has been reached
+      unless ($Con{$client}->{noprocessing} && !$sf || $NoExternalSpamProb && $Con{$client}->{relayok}) {
+       # clear out some existing headers
+       $Con{$client}->{myheader}=~s/^X-Assp-Spam$HeaderSepValueCRLFRe//gimo;
+       $Con{$client}->{myheader}=~s/^X-Assp-Spam-Prob$HeaderSepValueCRLFRe//gimo;
+       # add corrected headers
+       $Con{$client}->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
+       $Con{$client}->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$Con{$client}->{spamprob}) if $AddSpamProbHeader;
+      }
+      return call('L8',collectMail($client)); L8:
+      newTask(taskForwardMail($client),'NORM','S');
+     }
+    }
+   }
+   if ($Con{$client}->{inerror}) {
+    doneStats($client,0,'msgServerRejected');
+   } else {
+    mlogCond($client,$Con{$client}->{mlogbuf},1);
+    doneStats($client,1);
+   }
+   doneTmpBody($client,2); # unlink tmp message body file
+   doneClamAV($client,3); # close COMMAND & STREAM
+   stateReset($client);
+  }
   # email report/list interface sends messages itself
-  return if (defined($Con{$client}->{reporttype}) && $Con{$client}->{reporttype}>=0);
-  sendque($client,$l,1);
+  return if defined($Con{$client}->{reporttype}) && $Con{$client}->{reporttype}>=0;
+  sayque($client,$l);
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -2780,7 +2804,6 @@ sub checkWhitelist {
  my $this=$Con{$fh};
  my $a=lc $this->{mailfrom};
  my $whitelisted=$this->{relayok} || $this->{rwlok};
-## return $whitelisted unless $a; # don't add to the whitelist unless there's a valid envelope -- prevent bounced mail from adding to the whitelist
  return $whitelisted if $this->{isbounce}; # don't add to the whitelist unless there's a valid envelope -- prevent bounced mail from adding to the whitelist
  if ($Redlist{$a}) {
   mlogCond($fh,'sender on redlist',$SenderValLog);
@@ -2880,7 +2903,9 @@ sub checkSpamLover {
  my $mURIBLSLRE=matchSL($a,'uriblSpamLovers');
  my $mBSLRE=matchSL($a,'baysSpamLovers');
  my $mRLSLRE=matchSL($a,'ratelimitSpamLovers');
- $this->{allLoveSpam}=0 unless $rcptlocal && ($mSLRE || $mBSLRE || $mBLSLRE || $mHLSLRE || $mSPFSLRE || $mRBLSLRE || $mSRSSLRE || $mURIBLSLRE || $mDELSLRE || $mMVSLRE || $mMFSLRE || $mBOSLRE || $mRLSLRE);
+ $this->{allLoveSpam}=0 unless $rcptlocal && ($mSLRE || $mBSLRE || $mBLSLRE || $mHLSLRE ||
+                                              $mSPFSLRE || $mRBLSLRE || $mSRSSLRE || $mURIBLSLRE ||
+                                              $mDELSLRE || $mMVSLRE || $mMFSLRE || $mBOSLRE || $mRLSLRE);
  $this->{allLoveHlSpam}=0 unless $rcptlocal && ($mHLSLRE || $mSLRE);
  $this->{allLoveMfSpam}=0 unless $rcptlocal && ($mMFSLRE || $mSLRE);
  $this->{allLoveBlSpam}=0 unless $rcptlocal && ($mBLSLRE || $mSLRE);
@@ -2905,7 +2930,7 @@ sub checkEmailInterface {
   $this->{reporttype}=0;
   $this->{getline}=\&spamReport;
   mlog($fh,'email spamreport') if $EmailInterfaceLog;
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportSpam}++;
   return -1;
  } elsif (lc $u eq lc "$EmailHam\@") {
@@ -2913,7 +2938,7 @@ sub checkEmailInterface {
   $this->{reporttype}=1;
   $this->{getline}=\&spamReport;
   mlog($fh,'email hamreport') if $EmailInterfaceLog;
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportHam}++;
   return -1;
  } elsif (lc $u eq lc "$EmailWhitelistAdd\@") {
@@ -2922,7 +2947,7 @@ sub checkEmailInterface {
   $this->{getline}=\&listReport;
   mlog($fh,'email whitelist addition') if $EmailInterfaceLog;
   foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($fh,$a);}
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportWhitelistAdd}++;
   return -1;
  } elsif (lc $u eq lc "$EmailWhitelistRemove\@") {
@@ -2931,7 +2956,7 @@ sub checkEmailInterface {
   $this->{getline}=\&listReport;
   mlog($fh,'email whitelist deletion') if $EmailInterfaceLog;
   foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($fh,$a);}
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportWhitelistRemove}++;
   return -1;
  } elsif (lc $u eq lc "$EmailRedlistAdd\@") {
@@ -2940,7 +2965,7 @@ sub checkEmailInterface {
   $this->{getline}=\&listReport;
   mlog($fh,'email redlist addition') if $EmailInterfaceLog;
   foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($fh,$a);}
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportRedlistAdd}++;
   return -1;
  } elsif (lc $u eq lc "$EmailRedlistRemove\@") {
@@ -2949,7 +2974,7 @@ sub checkEmailInterface {
   $this->{getline}=\&listReport;
   mlog($fh,'email redlist deletion') if $EmailInterfaceLog;
   foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($fh,$a);}
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
   $Stats{rcptReportRedlistRemove}++;
   return -1;
  }
@@ -3527,8 +3552,7 @@ sub checkDelaying {
   $this->{delayed}=1;
   unless ($this->{isRelay} || $this->{isbounce}) {
    mlogCond($fh,"recipient delayed: $rcpt",$DelayLog);
-   my $reply=$DelayError ? $DelayError : '451 4.7.1 Please try again later';
-   sendque($fh,"$reply\015\012",1);
+   sayque($fh,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
    doneStats($fh,0); # $stats not set deliberately
    $ret=-1; # but keep connection open
   }
@@ -4297,7 +4321,7 @@ sub FShelo {
    FSabort($fh,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
    $Con{$fh}->{getline}=\&FSfrom;
-   sendque($fh,"HELO $myName\015\012",1);
+   sayque($fh,"HELO $myName");
   }
  }];
  &{$sref->[0]};
@@ -4314,7 +4338,7 @@ sub FSfrom {
    FSabort($fh,"from Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$fh}->{getline}=\&FSrcpt;
-   sendque($fh,"MAIL FROM:<$Con{$fh}->{from}>\015\012",1);
+   sayque($fh,"MAIL FROM:<$Con{$fh}->{from}>");
   }
  }];
  &{$sref->[0]};
@@ -4331,7 +4355,7 @@ sub FSrcpt {
    FSabort($fh,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$fh}->{getline}=\&FSdata;
-   sendque($fh,"RCPT TO:<$Con{$fh}->{to}>\015\012",1);
+   sayque($fh,"RCPT TO:<$Con{$fh}->{to}>");
   }
  }];
  &{$sref->[0]};
@@ -4348,7 +4372,7 @@ sub FSdata {
    FSabort($fh,"data Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$fh}->{getline}=\&FSdata2;
-   sendque($fh,"DATA\015\012",1);
+   sayque($fh,'DATA');
   }
  }];
  &{$sref->[0]};
@@ -4392,7 +4416,7 @@ sub FSdone {
   } elsif ($l=~/^ *250 /) {
    doneStats($fh,1,'cc');
    $this->{getline}=\&FSquit;
-   sendque($fh,"QUIT\015\012",1);
+   sayque($fh,'QUIT');
   }
  }];
  &{$sref->[0]};
@@ -4404,7 +4428,7 @@ sub FSabort {
  mlog(0,"FSabort: $l");
  doneStats($fh,0,'cc');
  $this->{getline}=\&FSquit;
- sendque($fh,"QUIT\015\012",1);
+ sayque($fh,'QUIT');
 }
 
 sub FSquit {
@@ -4426,11 +4450,12 @@ sub FSquit {
 # this mail isn't really a mail -- it's a spam/ham report
 sub spamReport {
  my ($fh,$l);
- my ($this,$report);
+ my ($this,$server,$report);
  my $sref=$Tasks{$CurTaskID}->{spamReport}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
+  $server=$this->{friend};
   slog($fh,$l,0);
   if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
    if ($1) {
@@ -4441,21 +4466,21 @@ sub spamReport {
    $this->{indata}=1;
    $this->{getline}=\&spamReportBody;
    $report=($this->{reporttype}==0) ? 'spam' : 'ham';
-   sendque($fh,"354 OK Send $report body\015\012",1);
+   sayque($fh,"354 OK Send $report body");
    return;
   } elsif ($l=~/^ *RSET/i) {
    stateReset($fh);
-   sendque($this->{friend},"RSET\015\012",1);
+   sayque($server,'RSET');
    return;
   } elsif ($l=~/^ *QUIT/i) {
    stateReset($fh);
-   sendque($this->{friend},"QUIT\015\012",1);
+   sayque($server,'QUIT');
    return;
   } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-   sendque($fh,"504 Need to authenticate first\015\012",1);
+   sayque($fh,'504 Need to authenticate first');
    return;
   }
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -4478,7 +4503,7 @@ sub spamReportBody {
    newTask(taskReturnMail($fh,' '.(shift)),'NORM','S') unless $NoHaikuCorrection;
    doneStats($fh,1,'reports');
    stateReset($fh);
-   sendque($this->{friend},"RSET\015\012",1);
+   sayque($this->{friend},'RSET');
   }
  }];
  &{$sref->[0]};
@@ -4542,11 +4567,12 @@ sub spamReportExec {
 # we're receiving an email to manipulate addresses in the whitelist/redlist
 sub listReport {
  my ($fh,$l);
- my ($this,$list);
+ my ($this,$server,$list);
  my $sref=$Tasks{$CurTaskID}->{listReport}||=[sub{
   ($fh,$l)=@_;
  },sub{&jump;
   $this=$Con{$fh};
+  $server=$this->{friend};
   slog($fh,$l,0);
   if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
    if ($1) {
@@ -4557,18 +4583,18 @@ sub listReport {
    $this->{indata}=1;
    $this->{getline}=\&listReportBody;
    $list=(($this->{reporttype} & 4)==0) ? 'whitelist' : 'redlist';
-   sendque($fh,"354 OK Send $list body\015\012",1);
+   sayque($fh,"354 OK Send $list body");
    return;
   } elsif ($l=~/^ *RSET/i) {
    stateReset($fh);
-   sendque($this->{friend},"RSET\015\012",1);
+   sayque($server,'RSET');
    return;
   } elsif ($l=~/^ *QUIT/i) {
    stateReset($fh);
-   sendque($this->{friend},"QUIT\015\012",1);
+   sayque($server,'QUIT');
    return;
   } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-   sendque($fh,"504 Need to authenticate first\015\012",1);
+   sayque($fh,'504 Need to authenticate first');
    return;
   } else {
    # more recipients ?
@@ -4577,7 +4603,7 @@ sub listReport {
     $this->{rcpt}.="$1 ";
    }
   }
-  sendque($fh,"250 OK\015\012",1);
+  sayque($fh,'250 OK');
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -4601,7 +4627,7 @@ sub listReportBody {
    delete $this->{report};
    doneStats($fh,1,'reports');
    stateReset($fh);
-   sendque($this->{friend},"RSET\015\012",1);
+   sayque($this->{friend},'RSET');
   } elsif ($l=~/message-id:/i || $l=~/from:.*?\Q$this->{mailfrom}\E/i) {
    # ignore
   } else {
@@ -4714,7 +4740,7 @@ sub RMhelo {
    RMabort($fh,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
    $Con{$fh}->{getline}=\&RMfrom;
-   sendque($fh,"HELO $myName\015\012",1);
+   sayque($fh,"HELO $myName");
   }
  }];
  &{$sref->[0]};
@@ -4734,7 +4760,7 @@ sub RMfrom {
    $this=$Con{$fh};
    $this->{getline}=\&RMrcpt;
    $from=$this->{from}=~/(<[^<>]+>)/ ? $1 : $this->{from};
-   sendque($fh,"MAIL FROM:$from\015\012",1);
+   sayque($fh,"MAIL FROM:$from");
   }
  }];
  &{$sref->[0]};
@@ -4751,7 +4777,7 @@ sub RMrcpt {
    RMabort($fh,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$fh}->{getline}=\&RMdata;
-   sendque($fh,"RCPT TO:<$Con{$fh}->{to}>\015\012",1);
+   sayque($fh,"RCPT TO:<$Con{$fh}->{to}>");
   }
  }];
  &{$sref->[0]};
@@ -4768,7 +4794,7 @@ sub RMdata {
    RMabort($fh,"data Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$fh}->{getline}=\&RMdata2;
-   sendque($fh,"DATA\015\012",1);
+   sayque($fh,'DATA');
   }
  }];
  &{$sref->[0]};
@@ -4812,7 +4838,7 @@ sub RMdone {
   } elsif ($l=~/^ *250 /) {
    doneStats($fh,1,'reportreturns');
    $this->{getline}=\&RMquit;
-   sendque($fh,"QUIT\015\012",1);
+   sayque($fh,'QUIT');
   }
  }];
  &{$sref->[0]};
@@ -4824,7 +4850,7 @@ sub RMabort {
  mlog(0,"RMabort: $l");
  doneStats($fh,0,'reportreturns');
  $this->{getline}=\&RMquit;
- sendque($fh,"QUIT\015\012",1);
+ sayque($fh,'QUIT');
 }
 
 sub RMquit {
@@ -5056,7 +5082,7 @@ sub resetStats {
  $Stats{rcptRelayRejected}=0;
  my @mcats=('noprocessing','locals','whites','reds','bhams','spamlover','testspams','reports','bspams','helolisted','senderfails',
             'blacklisted','spambucket','spffails','rblfails','malformed','uriblfails','viri','viridetected','bombs','scripts',
-            'msgNoRcpt','msgDelayed','msgNoSRSBounce','msgMaxErrors','msgEarlytalker','msgRateLimited','msgAborted');
+            'msgNoRcpt','msgDelayed','msgNoSRSBounce','msgMaxErrors','msgServerRejected','msgEarlytalker','msgRateLimited','msgAborted');
  foreach my $m (@mcats) {
   $Stats{$m}=0;
   $Stats{"prbytes$m"}=0;
@@ -5276,11 +5302,11 @@ sub statsTotals {
  $s{msgRejected}=$Stats{bspams}+$Stats{helolisted}+$Stats{senderfails}+$Stats{blacklisted}+$Stats{spambucket}+$Stats{spffails}+
                  $Stats{rblfails}+$Stats{malformed}+$Stats{uriblfails}+$Stats{viri}+$Stats{viridetected}+
                  $Stats{bombs}+$Stats{scripts}+$Stats{msgNoRcpt}+$Stats{msgDelayed}+$Stats{msgNoSRSBounce}+
-                 $Stats{msgMaxErrors}+$Stats{msgEarlytalker}+$Stats{msgRateLimited}+$Stats{msgAborted};
+                 $Stats{msgMaxErrors}+$Stats{msgServerRejected}+$Stats{msgEarlytalker}+$Stats{msgRateLimited}+$Stats{msgAborted};
  $s{msgRejected2}=$AllStats{bspams}+$AllStats{helolisted}+$AllStats{senderfails}+$AllStats{blacklisted}+$AllStats{spambucket}+$AllStats{spffails}+
                   $AllStats{rblfails}+$AllStats{malformed}+$AllStats{uriblfails}+$AllStats{viri}+$AllStats{viridetected}+
                   $AllStats{bombs}+$AllStats{scripts}+$AllStats{msgNoRcpt}+$AllStats{msgDelayed}+$AllStats{msgNoSRSBounce}+
-                  $AllStats{msgMaxErrors}+$AllStats{msgEarlytalker}+$AllStats{msgRateLimited}+$AllStats{msgAborted};
+                  $AllStats{msgMaxErrors}+$AllStats{msgServerRejected}+$AllStats{msgEarlytalker}+$AllStats{msgRateLimited}+$AllStats{msgAborted};
  $s{msgProcessed}=$s{msgAccepted}+$s{msgRejected};
  $s{msgProcessed2}=$s{msgAccepted2}+$s{msgRejected2};
  # bytes received/transmitted per side of proxy
@@ -5318,11 +5344,11 @@ sub statsTotals {
  $s{msgBlockedSpam}=$Stats{bspams}+$Stats{helolisted}+$Stats{senderfails}+$Stats{blacklisted}+$Stats{spambucket}+$Stats{spffails}+
                     $Stats{rblfails}+$Stats{malformed}+$Stats{uriblfails}+$Stats{viri}+$Stats{viridetected}+
                     $Stats{bombs}+$Stats{scripts}+$Stats{msgNoRcpt}+$Stats{msgDelayed}+$Stats{msgNoSRSBounce}+
-                    $Stats{msgMaxErrors}+$Stats{msgEarlytalker}+$Stats{msgRateLimited};
+                    $Stats{msgMaxErrors}+$Stats{msgServerRejected}+$Stats{msgEarlytalker}+$Stats{msgRateLimited};
  $s{msgBlockedSpam2}=$AllStats{bspams}+$AllStats{helolisted}+$AllStats{senderfails}+$AllStats{blacklisted}+$AllStats{spambucket}+$AllStats{spffails}+
                      $AllStats{rblfails}+$AllStats{malformed}+$AllStats{uriblfails}+$AllStats{viri}+$AllStats{viridetected}+
                      $AllStats{bombs}+$AllStats{scripts}+$AllStats{msgNoRcpt}+$AllStats{msgDelayed}+$AllStats{msgNoSRSBounce}+
-                     $AllStats{msgMaxErrors}+$AllStats{msgEarlytalker}+$AllStats{msgRateLimited};
+                     $AllStats{msgMaxErrors}+$AllStats{msgServerRejected}+$AllStats{msgEarlytalker}+$AllStats{msgRateLimited};
  $s{msg}=$s{msgHam}+$s{msgPassedSpam}+$s{msgBlockedSpam};
  $s{msg2}=$s{msgHam2}+$s{msgPassedSpam2}+$s{msgBlockedSpam2};
  # bytes received per message class
@@ -5336,12 +5362,12 @@ sub statsTotals {
                         $Stats{prbytesmsgNoRcpt}+$Stats{prbytesmsgDelayed}+$Stats{prbytesmsgNoSRSBounce}+$Stats{prbytesspambucket}+
                         $Stats{prbytesspffails}+$Stats{prbytesrblfails}+$Stats{prbytesmalformed}+$Stats{prbytesuriblfails}+
                         $Stats{prbytesbombs}+$Stats{prbytesscripts}+$Stats{prbytesviri}+$Stats{prbytesviridetected}+
-                        $Stats{prbytesmsgMaxErrors}+$Stats{prbytesmsgRateLimited};
+                        $Stats{prbytesmsgMaxErrors}+$Stats{prbytesmsgServerRejected}+$Stats{prbytesmsgRateLimited};
  $s{prbytesBlockedSpam2}=$AllStats{prbytesbspams}+$AllStats{prbytesmsgEarlytalker}+$AllStats{prbyteshelolisted}+$AllStats{prbytesblacklisted}+
                          $AllStats{prbytesmsgNoRcpt}+$AllStats{prbytesmsgDelayed}+$AllStats{prbytesmsgNoSRSBounce}+$AllStats{prbytesspambucket}+
                          $AllStats{prbytesspffails}+$AllStats{prbytesrblfails}+$AllStats{prbytesmalformed}+$AllStats{prbytesuriblfails}+
                          $AllStats{prbytesbombs}+$AllStats{prbytesscripts}+$AllStats{prbytesviri}+$AllStats{prbytesviridetected}+
-                         $AllStats{prbytesmsgMaxErrors}+$AllStats{prbytesmsgRateLimited};
+                         $AllStats{prbytesmsgMaxErrors}+$AllStats{prbytesmsgServerRejected}+$AllStats{prbytesmsgRateLimited};
  $s{prbytesMsg}=$s{prbytesHam}+$s{prbytesPassedSpam}+$s{prbytesBlockedSpam};
  $s{prbytesMsg2}=$s{prbytesHam2}+$s{prbytesPassedSpam2}+$s{prbytesBlockedSpam2};
 ## $s{drbytesHam}=$Stats{drbytesnoprocessing}+$Stats{drbyteslocals}+$Stats{drbyteswhites}+$Stats{drbytesreds}+$Stats{drbytesbhams}+$Stats{drbytesreports};
@@ -5354,12 +5380,12 @@ sub statsTotals {
                         $Stats{drbytesmsgNoRcpt}+$Stats{drbytesmsgDelayed}+$Stats{drbytesmsgNoSRSBounce}+$Stats{drbytesspambucket}+
                         $Stats{drbytesspffails}+$Stats{drbytesrblfails}+$Stats{drbytesmalformed}+$Stats{drbytesuriblfails}+
                         $Stats{drbytesbombs}+$Stats{drbytesscripts}+$Stats{drbytesviri}+$Stats{drbytesviridetected}+
-                        $Stats{drbytesmsgMaxErrors}+$Stats{drbytesmsgRateLimited};
+                        $Stats{drbytesmsgMaxErrors}+$Stats{drbytesmsgServerRejected}+$Stats{drbytesmsgRateLimited};
  $s{drbytesBlockedSpam2}=$AllStats{drbytesbspams}+$AllStats{drbytesmsgEarlytalker}+$AllStats{drbyteshelolisted}+$AllStats{drbytesblacklisted}+
                          $AllStats{drbytesmsgNoRcpt}+$AllStats{drbytesmsgDelayed}+$AllStats{drbytesmsgNoSRSBounce}+$AllStats{drbytesspambucket}+
                          $AllStats{drbytesspffails}+$AllStats{drbytesrblfails}+$AllStats{drbytesmalformed}+$AllStats{drbytesuriblfails}+
                          $AllStats{drbytesbombs}+$AllStats{drbytesscripts}+$AllStats{drbytesviri}+$AllStats{drbytesviridetected}+
-                         $AllStats{drbytesmsgMaxErrors}+$AllStats{drbytesmsgRateLimited};
+                         $AllStats{drbytesmsgMaxErrors}+$AllStats{drbytesmsgServerRejected}+$AllStats{drbytesmsgRateLimited};
  $s{drbytesMsg}=$s{drbytesHam}+$s{drbytesPassedSpam}+$s{drbytesBlockedSpam};
  $s{drbytesMsg2}=$s{drbytesHam2}+$s{drbytesPassedSpam2}+$s{drbytesBlockedSpam2};
  $s{rbytesHam}=$s{prbytesHam}+$s{drbytesHam};
@@ -5381,12 +5407,12 @@ sub statsTotals {
                        $Stats{prtimemsgNoRcpt}+$Stats{prtimemsgDelayed}+$Stats{prtimemsgNoSRSBounce}+$Stats{prtimespambucket}+
                        $Stats{prtimespffails}+$Stats{prtimerblfails}+$Stats{prtimemalformed}+$Stats{prtimeuriblfails}+
                        $Stats{prtimebombs}+$Stats{prtimescripts}+$Stats{prtimeviri}+$Stats{prtimeviridetected}+
-                       $Stats{prtimemsgMaxErrors}+$Stats{prtimemsgRateLimited};
+                       $Stats{prtimemsgMaxErrors}+$Stats{prtimemsgServerRejected}+$Stats{prtimemsgRateLimited};
  $s{prtimeBlockedSpam2}=$AllStats{prtimebspams}+$AllStats{prtimemsgEarlytalker}+$AllStats{prtimehelolisted}+$AllStats{prtimeblacklisted}+
                         $AllStats{prtimemsgNoRcpt}+$AllStats{prtimemsgDelayed}+$AllStats{prtimemsgNoSRSBounce}+$AllStats{prtimespambucket}+
                         $AllStats{prtimespffails}+$AllStats{prtimerblfails}+$AllStats{prtimemalformed}+$AllStats{prtimeuriblfails}+
                         $AllStats{prtimebombs}+$AllStats{prtimescripts}+$AllStats{prtimeviri}+$AllStats{prtimeviridetected}+
-                        $AllStats{prtimemsgMaxErrors}+$AllStats{prtimemsgRateLimited};
+                        $AllStats{prtimemsgMaxErrors}+$AllStats{prtimemsgServerRejected}+$AllStats{prtimemsgRateLimited};
  $s{prtimeMsg}=$s{prtimeHam}+$s{prtimePassedSpam}+$s{prtimeBlockedSpam};
  $s{prtimeMsg2}=$s{prtimeHam2}+$s{prtimePassedSpam2}+$s{prtimeBlockedSpam2};
 ## $s{drtimeHam}=$Stats{drtimenoprocessing}+$Stats{drtimelocals}+$Stats{drtimewhites}+$Stats{drtimereds}+$Stats{drtimebhams}+$Stats{drtimereports};
@@ -5399,12 +5425,12 @@ sub statsTotals {
                        $Stats{drtimemsgNoRcpt}+$Stats{drtimemsgDelayed}+$Stats{drtimemsgNoSRSBounce}+$Stats{drtimespambucket}+
                        $Stats{drtimespffails}+$Stats{drtimerblfails}+$Stats{drtimemalformed}+$Stats{drtimeuriblfails}+
                        $Stats{drtimebombs}+$Stats{drtimescripts}+$Stats{drtimeviri}+$Stats{drtimeviridetected}+
-                       $Stats{drtimemsgMaxErrors}+$Stats{drtimemsgRateLimited};
+                       $Stats{drtimemsgMaxErrors}+$Stats{drtimemsgServerRejected}+$Stats{drtimemsgRateLimited};
  $s{drtimeBlockedSpam2}=$AllStats{drtimebspams}+$AllStats{drtimemsgEarlytalker}+$AllStats{drtimehelolisted}+$AllStats{drtimeblacklisted}+
                         $AllStats{drtimemsgNoRcpt}+$AllStats{drtimemsgDelayed}+$AllStats{drtimemsgNoSRSBounce}+$AllStats{drtimespambucket}+
                         $AllStats{drtimespffails}+$AllStats{drtimerblfails}+$AllStats{drtimemalformed}+$AllStats{drtimeuriblfails}+
                         $AllStats{drtimebombs}+$AllStats{drtimescripts}+$AllStats{drtimeviri}+$AllStats{drtimeviridetected}+
-                        $AllStats{drtimemsgMaxErrors}+$AllStats{drtimemsgRateLimited};
+                        $AllStats{drtimemsgMaxErrors}+$AllStats{drtimemsgServerRejected}+$AllStats{drtimemsgRateLimited};
  $s{drtimeMsg}=$s{drtimeHam}+$s{drtimePassedSpam}+$s{drtimeBlockedSpam};
  $s{drtimeMsg2}=$s{drtimeHam2}+$s{drtimePassedSpam2}+$s{drtimeBlockedSpam2};
  $s{rtimeHam}=$s{prtimeHam}+$s{drtimeHam};
@@ -5426,12 +5452,12 @@ sub statsTotals {
                         $Stats{lbannermsgNoRcpt}+$Stats{lbannermsgDelayed}+$Stats{lbannermsgNoSRSBounce}+$Stats{lbannerspambucket}+
                         $Stats{lbannerspffails}+$Stats{lbannerrblfails}+$Stats{lbannermalformed}+$Stats{lbanneruriblfails}+
                         $Stats{lbannerbombs}+$Stats{lbannerscripts}+$Stats{lbannerviri}+$Stats{lbannerviridetected}+
-                        $Stats{lbannermsgMaxErrors}+$Stats{lbannermsgRateLimited};
+                        $Stats{lbannermsgMaxErrors}+$Stats{lbannermsgServerRejected}+$Stats{lbannermsgRateLimited};
  $s{lbannerBlockedSpam2}=$AllStats{lbannerbspams}+$AllStats{lbannermsgEarlytalker}+$AllStats{lbannerhelolisted}+$AllStats{lbannerblacklisted}+
                          $AllStats{lbannermsgNoRcpt}+$AllStats{lbannermsgDelayed}+$AllStats{lbannermsgNoSRSBounce}+$AllStats{lbannerspambucket}+
                          $AllStats{lbannerspffails}+$AllStats{lbannerrblfails}+$AllStats{lbannermalformed}+$AllStats{lbanneruriblfails}+
                          $AllStats{lbannerbombs}+$AllStats{lbannerscripts}+$AllStats{lbannerviri}+$AllStats{lbannerviridetected}+
-                         $AllStats{lbannermsgMaxErrors}+$AllStats{lbannermsgRateLimited};
+                         $AllStats{lbannermsgMaxErrors}+$AllStats{lbannermsgServerRejected}+$AllStats{lbannermsgRateLimited};
  $s{lbanner}=$s{lbannerHam}+$s{lbannerPassedSpam}+$s{lbannerBlockedSpam};
  $s{lbanner2}=$s{lbannerHam2}+$s{lbannerPassedSpam2}+$s{lbannerBlockedSpam2};
  # min latency per message class
@@ -5445,12 +5471,12 @@ sub statsTotals {
                      $Stats{lminmsgNoRcpt}+$Stats{lminmsgDelayed}+$Stats{lminmsgNoSRSBounce}+$Stats{lminspambucket}+
                      $Stats{lminspffails}+$Stats{lminrblfails}+$Stats{lminmalformed}+$Stats{lminuriblfails}+
                      $Stats{lminbombs}+$Stats{lminscripts}+$Stats{lminviri}+$Stats{lminviridetected}+
-                     $Stats{lminmsgMaxErrors}+$Stats{lminmsgRateLimited};
+                     $Stats{lminmsgMaxErrors}+$Stats{lminmsgServerRejected}+$Stats{lminmsgRateLimited};
  $s{lminBlockedSpam2}=$AllStats{lminbspams}+$AllStats{lminmsgEarlytalker}+$AllStats{lminhelolisted}+$AllStats{lminblacklisted}+
                       $AllStats{lminmsgNoRcpt}+$AllStats{lminmsgDelayed}+$AllStats{lminmsgNoSRSBounce}+$AllStats{lminspambucket}+
                       $AllStats{lminspffails}+$AllStats{lminrblfails}+$AllStats{lminmalformed}+$AllStats{lminuriblfails}+
                       $AllStats{lminbombs}+$AllStats{lminscripts}+$AllStats{lminviri}+$AllStats{lminviridetected}+
-                      $AllStats{lminmsgMaxErrors}+$AllStats{lminmsgRateLimited};
+                      $AllStats{lminmsgMaxErrors}+$AllStats{lminmsgServerRejected}+$AllStats{lminmsgRateLimited};
  $s{lmin}=$s{lminHam}+$s{lminPassedSpam}+$s{lminBlockedSpam};
  $s{lmin2}=$s{lminHam2}+$s{lminPassedSpam2}+$s{lminBlockedSpam2};
  # max latency per message class
@@ -5464,12 +5490,12 @@ sub statsTotals {
                      $Stats{lmaxmsgNoRcpt}+$Stats{lmaxmsgDelayed}+$Stats{lmaxmsgNoSRSBounce}+$Stats{lmaxspambucket}+
                      $Stats{lmaxspffails}+$Stats{lmaxrblfails}+$Stats{lmaxmalformed}+$Stats{lmaxuriblfails}+
                      $Stats{lmaxbombs}+$Stats{lmaxscripts}+$Stats{lmaxviri}+$Stats{lmaxviridetected}+
-                     $Stats{lmaxmsgMaxErrors}+$Stats{lmaxmsgRateLimited};
+                     $Stats{lmaxmsgMaxErrors}+$Stats{lmaxmsgServerRejected}+$Stats{lmaxmsgRateLimited};
  $s{lmaxBlockedSpam2}=$AllStats{lmaxbspams}+$AllStats{lmaxmsgEarlytalker}+$AllStats{lmaxhelolisted}+$AllStats{lmaxblacklisted}+
                       $AllStats{lmaxmsgNoRcpt}+$AllStats{lmaxmsgDelayed}+$AllStats{lmaxmsgNoSRSBounce}+$AllStats{lmaxspambucket}+
                       $AllStats{lmaxspffails}+$AllStats{lmaxrblfails}+$AllStats{lmaxmalformed}+$AllStats{lmaxuriblfails}+
                       $AllStats{lmaxbombs}+$AllStats{lmaxscripts}+$AllStats{lmaxviri}+$AllStats{lmaxviridetected}+
-                      $AllStats{lmaxmsgMaxErrors}+$AllStats{lmaxmsgRateLimited};
+                      $AllStats{lmaxmsgMaxErrors}+$AllStats{lmaxmsgServerRejected}+$AllStats{lmaxmsgRateLimited};
  $s{lmax}=$s{lmaxHam}+$s{lmaxPassedSpam}+$s{lmaxBlockedSpam};
  $s{lmax2}=$s{lmaxHam2}+$s{lmaxPassedSpam2}+$s{lmaxBlockedSpam2};
  # misc task stats

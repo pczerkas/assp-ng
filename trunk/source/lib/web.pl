@@ -35,8 +35,8 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
              '<span style="color:white; background-color:#004699">',
              '<span style="color:white; background-color:#990099">');
 
-@News=('smtpAuthServer','SMTPreadtimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay','GreetDelayError',
-       'ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
+@News=('smtpAuthServer','SMTPClientReadTimeout','SMTPServerReadTimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay',
+       'GreetDelayError','ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
        'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
        'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','SPFExtra','noSPF','SPFError',
@@ -62,11 +62,11 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
        'RLIBTscripts','RLIBTviri','RLIBTviridetected','RLIBTbspams','RateLimitEmailInterface','RLIBTrcptReportSpam',
        'RLIBTrcptReportHam','RLIBTrcptReportWhitelistAdd','RLIBTrcptReportWhitelistRemove','RLIBTrcptReportRedlistAdd',
        'RLIBTrcptReportRedlistRemove','RateLimitMisc','RLIBTrcptNonexistent','RLIBTmsgNoRcpt','RLIBTrcptRelayRejected',
-       'RLIBTmsgMaxErrors','RLIBTmsgEarlytalker','RLIBTmsgDelayed','RLIBTmsgAborted','noRateLimit','RateLimitError',
+       'RLIBTmsgMaxErrors','RLIBTmsgServerRejected','RLIBTmsgEarlytalker','RLIBTmsgDelayed','RLIBTmsgAborted','noRateLimit','RateLimitError',
        'RateLimitBlockedError','npColl','localColl','whiteColl','redColl','baysNonSpamColl','baysSpamColl',
        'spamHeloColl','mfFailColl','blDomainColl','SRSFailColl','spamBucketColl','SPFFailColl','RBLFailColl',
        'malformedColl','URIBLFailColl','spamBombColl','scriptColl','wlAttachColl','npAttachColl','extAttachColl',
-       'viriColl','FilesDistribution','NoHaikuCorrection','NoHaikuWhitelist','NoHaikuRedlist','ratelimitdb','corpusdb',
+       'viriColl','serverRejectedColl','FilesDistribution','NoHaikuCorrection','NoHaikuWhitelist','NoHaikuRedlist','ratelimitdb','corpusdb',
        'slogfile','ClientValLog','SenderValLog','RecipientValLog','AvLog','RELog','IPMatchLog','RateLimitLog',
        'EmailInterfaceLog','AdminConnectionLog','ServerSessionLog','LogRollDays','LogRotateCopies','MaxRebuildBytes',
        'IncomingBufSize','MaintenanceInterval','EnableCorpusInterface','MaillogContextLines','BackupCopies','webAdminCharset',
@@ -98,6 +98,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
                 [0,'Attachments Blocked:','negative','viri'],
                 [0,'Viruses Detected:','negative','viridetected'],
                 [0,'Max Errors Exceeded:','negative','msgMaxErrors'],
+                [0,'Server Rejected Messages:','negative','msgServerRejected'],
                 [0,'Rate Limit Exceeded:','negative','msgRateLimited'],
                 [0,'Aborted Messages:','negative','msgAborted']);
 
@@ -134,6 +135,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
                  [1,'Attachments Blocked:','negative','rbytesviri'],
                  [1,'Viruses Detected:','negative','rbytesviridetected'],
                  [1,'Max Errors Exceeded:','negative','rbytesmsgMaxErrors'],
+                 [1,'Server Rejected Messages:','negative','rbytesmsgServerRejected'],
                  [1,'Rate Limit Exceeded:','negative','rbytesmsgRateLimited'],
                  [1,'Aborted Messages:','negative','rbytesmsgAborted'],
                  [1,'Other Traffic:','negative','rbytesotherblocked'],
