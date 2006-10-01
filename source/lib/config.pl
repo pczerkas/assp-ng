@@ -60,19 +60,19 @@ $AttachmentBlockLevels={'0'=>'Disabled',
                         '2'=>'Level 2',
                         '3'=>'Level 3'};
 
-$HamCollectionOptions={'1'=>'notspam folder',
-                       '2'=>'notspam folder & CC',
-                       '3'=>'mailok folder',
-                       '4'=>'mailok folder & CC',
-                       '5'=>'discard',
-                       '6'=>'discard & CC'};
+$HamCollectionOptions={'1'=>'notspam folder & CC',
+                       '2'=>'notspam folder',
+                       '3'=>'mailok folder & CC',
+                       '4'=>'mailok folder',
+                       '5'=>'discard & CC',
+                       '6'=>'discard'};
 
-$SpamCollectionOptions={'7'=>'spam folder',
-                        '8'=>'spam folder & CC',
-                        '9'=>'discard',
-                        '10'=>'discard & CC',
-                        '11'=>'virii folder',
-                        '12'=>'virii folder & CC'};
+$SpamCollectionOptions={'7'=>'spam folder & CC',
+                        '8'=>'spam folder',
+                        '9'=>'discard & CC',
+                        '10'=>'discard',
+                        '11'=>'virii folder & CC',
+                        '12'=>'virii folder'};
 
 @Config=(
 [0,0,0,\&heading,'Network Setup'],
@@ -122,10 +122,8 @@ $SpamCollectionOptions={'7'=>'spam folder',
    Also note that the ISP &amp; accept all mail addresses are excluded from limiting.',undef],
  ['MaxErrors','Max Errors',5,\&textinput,10,'(\d+)',undef,
   'If the SMTP Destination sends $MaxErrors 550s, 501s, 502s ... the connection is dropped.',undef],
- ['SMTPClientReadTimeout','SMTP Client Read Timeout',5,\&textinput,180,'(\d+)',undef,
-  'This sets the SMTP client-side socket read timeout. Defaults to 3 minutes.',undef],
- ['SMTPServerReadTimeout','SMTP Server Read Timeout',5,\&textinput,180,'(\d+)',undef,
-  'This sets the SMTP server-side socket read timeout. Defaults to 3 minutes.',undef],
+ ['SMTPTimeout','SMTP Socket Timeout',5,\&textinput,180,'(\d+)',undef,
+  'This sets the SMTP client/server socket read/write timeout. Defaults to 3 minutes.',undef],
  ['proxyserver','Proxy Server',20,\&textinput,'','(\S*)',undef,
   'Use a Proxy Server for up/downloading greylist etc. Format - interface:port.
    For example: 192.168.0.1:8080',undef],
@@ -898,52 +896,52 @@ $SpamCollectionOptions={'7'=>'spam folder',
 
 
 [0,0,0,\&heading,'Collection Options'],
- ['npColl','No Processing',1,\&option,5,'([1-6])',undef,
+ ['npColl','No Processing',1,\&option,6,'([1-6])',undef,
   'Where to store no processing emails.<br /><br />
    Note: Messages may undergo multiple spam tests. At any stage of processing, the test will be performed only if its assigned<br />
    collection value or severity (testmode, spamlover vs blocking) is greater than the value aquired so far by the message.',$HamCollectionOptions],
- ['localColl','Local or Whitelisted Ham',1,\&option,1,'([1-6])',undef,
+ ['localColl','Local or Whitelisted Ham',1,\&option,2,'([1-6])',undef,
   'Where to store local emails.',$HamCollectionOptions],
- ['whiteColl','Whitelisted Ham',1,\&option,1,'([1-6])',undef,
+ ['whiteColl','Whitelisted Ham',1,\&option,2,'([1-6])',undef,
   'Where to store whitelisted emails.',$HamCollectionOptions],
- ['redColl','Redlisted',1,\&option,3,'([1-6])',undef,
+ ['redColl','Redlisted',1,\&option,4,'([1-6])',undef,
   'Where to store redlisted emails.',$HamCollectionOptions],
- ['baysNonSpamColl','Bayesian Non Spam',1,\&option,3,'([1-6])',undef,
+ ['baysNonSpamColl','Bayesian Non Spam',1,\&option,4,'([1-6])',undef,
   'Where to store Bayesian non spam (message ok) emails.<br />
    Recommended: \'mailok folder\' (prevents false negatives from corrupting corpus)',$HamCollectionOptions],
- ['baysSpamColl','Bayesian Spams',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['baysSpamColl','Bayesian Spams',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store Bayesian spam emails.',$SpamCollectionOptions],
- ['spamHeloColl','Spam Helos',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['spamHeloColl','Spam Helos',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store spam helo emails.',$SpamCollectionOptions],
- ['mfFailColl','Sender Failures',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['mfFailColl','Sender Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store sender failure emails.',$SpamCollectionOptions],
- ['blDomainColl','Blacklisted Domains',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['blDomainColl','Blacklisted Domains',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store blacklisted domain emails.',$SpamCollectionOptions],
- ['SRSFailColl','SRS Failures',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['SRSFailColl','SRS Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store SRS Failure (not signed bounces) spam emails.',$SpamCollectionOptions],
- ['spamBucketColl','Spam Trap Addresses',1,\&option,9,'([7-9]|1[0-2])',undef,
+ ['spamBucketColl','Spam Trap Addresses',1,\&option,10,'([7-9]|1[0-2])',undef,
   'Where to store has spam trap address emails.',$SpamCollectionOptions],
- ['SPFFailColl','SPF Failures',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['SPFFailColl','SPF Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store SPF Failure spam emails.',$SpamCollectionOptions],
- ['RBLFailColl','RBL Failures',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['RBLFailColl','RBL Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store RBL Failure spam emails.',$SpamCollectionOptions],
- ['malformedColl','Malformed Messages',1,\&option,12,'([7-9]|1[0-2])',undef,
+ ['malformedColl','Malformed Messages',1,\&option,11,'([7-9]|1[0-2])',undef,
   'Where to store malformed messages.',$SpamCollectionOptions],
- ['URIBLFailColl','URIBL Failures',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['URIBLFailColl','URIBL Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store URIBL Failure spam emails.',$SpamCollectionOptions],
- ['spamBombColl','Spam Bombs',1,\&option,8,'([7-9]|1[0-2])',undef,
+ ['spamBombColl','Spam Bombs',1,\&option,7,'([7-9]|1[0-2])',undef,
   'Where to store spam bombs.',$SpamCollectionOptions],
- ['scriptColl','Scripts',1,\&option,9,'([7-9]|1[0-2])',undef,
+ ['scriptColl','Scripts',1,\&option,10,'([7-9]|1[0-2])',undef,
   'Where to store scripted emails.',$SpamCollectionOptions],
- ['wlAttachColl','Whitelisted Blocked Attachments',1,\&option,11,'([7-9]|1[0-2])',undef,
+ ['wlAttachColl','Whitelisted Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
   'Where to store Whitelisted blocked attachments.',$SpamCollectionOptions],
- ['npAttachColl','No Processing Blocked Attachments',1,\&option,11,'([7-9]|1[0-2])',undef,
+ ['npAttachColl','No Processing Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
   'Where to store no processing blocked attachments.',$SpamCollectionOptions],
- ['extAttachColl','External Blocked Attachments',1,\&option,11,'([7-9]|1[0-2])',undef,
+ ['extAttachColl','External Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
   'Where to store external blocked attachments.',$SpamCollectionOptions],
- ['viriColl','Viruses',1,\&option,11,'([7-9]|1[0-2])',undef,
+ ['viriColl','Viruses',1,\&option,12,'([7-9]|1[0-2])',undef,
   'Where to store virus-infected emails.',$SpamCollectionOptions],
- ['serverRejectedColl','Server Rejected Messages',1,\&option,7,'([7-9]|1[0-2])',undef,
+ ['serverRejectedColl','Server Rejected Messages',1,\&option,8,'([7-9]|1[0-2])',undef,
   'Where to store server rejected emails.',$SpamCollectionOptions],
  ['freqNonSpam','Non Spam Collecting Frequency',5,\&textinput,1,'(\d*)',\&configUpdateLog2,
   'Store every n\'th non spam message. Eg. if you set the value to 10 then every 10th message is collected.<br />
@@ -1206,11 +1204,16 @@ $SpamCollectionOptions={'7'=>'spam folder',
 
 sub configLoad {
  # load configuration file
- print "loading config -- base='$base'\n";
- open(F,"<$base/assp.cfg");
- local $/;
- (%Config)=split(/:=|\n/,<F>);
- close F;
+ my $fil="$base/assp.cfg";
+ if (open(F,'<',$fil)) {
+  print "loading config -- base='$base'\n";
+  local $/;
+  (%Config)=split(/:=|\n/,<F>);
+  close F;
+  undef $/;
+ } else {
+  print "failed to open config file for reading '$fil': $!";
+ }
 }
 
 sub configInit {
@@ -1276,9 +1279,14 @@ sub configInitUpdate {
 sub configSave {
  my $fil="$base/assp.cfg";
  backupFile($fil);
- open(F,">$fil");
- foreach (sort keys %Config) {print F "$_:=$Config{$_}\n";}
- close F;
+ if (open(F,'>',$fil)) {
+  foreach my $k (sort keys %Config) {
+   print F "$k:=$Config{$k}\n";
+  }
+  close F;
+ } else {
+  print "failed to open config file for writing '$fil': $!";
+ }
 }
 
 sub optionFilesReload {
@@ -1321,16 +1329,16 @@ sub checkOptionList {
   my @s=stat($fil);
   my $mtime=$s[9];
   $FileUpdate{$fil}=$mtime;
-  if (open(OL,"<$fil")) {
-   $value=<OL>;
+  if (open(F,'<',$fil)) {
+   $value=<F>;
    # clean off comments
    $value=~s/#.*//g;
    # replace newlines (and the whitespace that surrounds them) with a |
    $value=~s/\s*\n\s*/|/g;
-   close OL;
+   close F;
    mlog(0,"option list file '$fil' reloaded ($name)") unless $init;
   } else {
-   mlog(0,"failed to open option list file '$fil' ($name): $!");
+   mlog(0,"failed to open option list file for reading '$fil' ($name): $!");
    $value='';
   }
  }
@@ -1641,22 +1649,22 @@ sub configChangeLogfile {
  my ($name, $old, $new)=@_;
  close LOG if $logfile;
  $logfile=$new;
- if ($logfile && open(LOG,">>$base/$logfile")) {
+ if ($logfile && open(LOG,'>>',"$base/$logfile")) {
   my $oldfh=select(LOG); $|=1; select($oldfh);
+  mlog(0,"log file changed to '$new' from '$old' per admin request");
  }
- mlog(0,"log file changed to '$new' from '$old' per admin request");
- '';
+ return '';
 }
 
 sub configChangeSlogfile {
  my ($name, $old, $new)=@_;
  close SLOG if $slogfile;
  $slogfile=$new;
- if ($slogfile && open(SLOG,">>$base/$slogfile")) {
+ if ($slogfile && open(SLOG,'>>',"$base/$slogfile")) {
   my $oldfh=select(SLOG); $|=1; select($oldfh);
+  mlog(0,"sessions log file changed to '$new' from '$old' per admin request");
  }
- mlog(0,"sessions log file changed to '$new' from '$old' per admin request");
- '';
+ return '';
 }
 
 # Bad Attachment Settings, Checks and Update.
@@ -1759,7 +1767,7 @@ sub configUpdateRWLSP {
   ($ValidateRWL,$Config{ValidateRWL})=();
   return '<span class="negative">*** RWLServiceProvider must contain more than or equal to RWLmaxreplies domains before enabling RWL.</span>';
  } elsif ($CanUseRWL) {
-  my $res=Net::DNS::Resolver->new;
+  my $res=Net::DNS::Resolver->new();
   @nameservers=$res->nameservers;
   @rwllist=split(/\|/,$new);
   if ($init && $ValidateRWL) {
@@ -1821,7 +1829,7 @@ sub configUpdateRBLSP {
   ($ValidateRBL,$Config{ValidateRBL})=();
   return '<span class="negative">*** RBLServiceProvider must contain more than or equal to RBLmaxreplies domains before enabling RBL.</span>';
  } elsif ($CanUseRBL) {
-  my $res=Net::DNS::Resolver->new;
+  my $res=Net::DNS::Resolver->new();
   @nameservers=$res->nameservers;
   @rbllist=split(/\|/,$new);
   if ($init && $ValidateRBL) {
@@ -1883,7 +1891,7 @@ sub configUpdateURIBLSP {
   ($ValidateURIBL,$Config{ValidateURIBL})=();
   return '<span class="negative">*** URIBLServiceProvider must contain more than or equal to URIBLmaxreplies domains before enabling URIBL.</span>';
  } elsif ($CanUseURIBL) {
-  my $res=Net::DNS::Resolver->new;
+  my $res=Net::DNS::Resolver->new();
   @nameservers=$res->nameservers;
   @uribllist=split(/\|/,$new);
   if ($init && $ValidateURIBL) {
@@ -1976,14 +1984,18 @@ sub configUpdateShowTooltipsIP {
 sub configUpdateLog2 {
  my ($name, $old, $new, $init)=@_;
  mlog(0,"Non Spam Logging Frequency updated from '$old' to '$new'") unless $init;
- $logFreq[1]=$logFreq[2]=$logFreq[3]=$logFreq[4]=$new;
+ for (my $i=1;$i<=6;$i++) {
+  $logFreq[$i]=$new;
+ }
  configUpdateLog3('freqNonSpam','',$Config{freqNonSpam},$new);
 }
 
 sub configUpdateLog3 {
  my ($name, $old, $new, $init)=@_;
  mlog(0,"Spam Logging Frequency updated from '$old' to '$new'") unless $init;
- $logFreq[5]=$logFreq[6]=$logFreq[7]=$logFreq[8]=$logFreq[9]=$new;
+ for (my $i=7;$i<=12;$i++) {
+  $logFreq[$i]=$new;
+ }
  return '';
 }
 

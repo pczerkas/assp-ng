@@ -101,15 +101,15 @@ print "Found $SpamWordCount spam words, $HamWordCount non-spam words.\nGeneratin
 printf "norm=%.4f\n",$norm;
 $unknowns=0; $unknownt=0;
 
-open(F,">$base/$spamdb.tmp") or die "Couldn't open '$base/$spamdb.tmp': $!\n";
+open(F,'>',"$base/$spamdb.tmp") or die "Couldn't open '$base/$spamdb.tmp': $!\n";
 binmode F;
 print F "\n";
 
 if ($spamObject) {
  $spamObject->flush();
- open(I,"<$base/spamtmp");
+ open(I,'<',"$base/spamtmp");
  local $/="\n";
- while(<I>) {
+ while (<I>) {
   ($_,$s,$t)=/(.*)\002(\d+) (\d+)/;
   $t=($t-$s)*$norm+$s; # normalize t
   if ($t < 5) {
@@ -127,7 +127,7 @@ if ($spamObject) {
  }
  close F;
 } else {
- while(my ($k,$v)=each(%spam)) {
+ while (my ($k,$v)=each(%spam)) {
   ($s,$t)=split(' ',$v);
   $t=($t-$s)*$norm+$s; # normalize t
   if ($t < 5) {
@@ -153,10 +153,10 @@ backupFile("$base/$spamdb");
 rename("$base/$spamdb.tmp","$base/$spamdb") || print "Couldn't rename '$base/$spamdb.tmp' to '$base/$spamdb': $!\n";
 
 # create helo blacklist
-open(F,">$base/$spamdb.helo.tmp") || print "Couldn't open '$base/$spamdb.helo.tmp': $!\n";
+open(F,'>',"$base/$spamdb.helo.tmp") || print "Couldn't open '$base/$spamdb.helo.tmp': $!\n";
 binmode F;
 print F "\n";
-while(my ($k,$v)=each(%Helo)) {
+while (my ($k,$v)=each(%Helo)) {
  push(@Helo,"$k\0021\n") if $v->[1]/($v->[0]+$v->[1]+.1) > .98;
 }
 print F sort @Helo;
@@ -170,12 +170,12 @@ if (rand()< .05) {
  $t=time - 24*3600*$MaxWhitelistDays;
  print "Cleaning whitelist\n";
 
- if (open(F,"<$base/$whitelistdb") && open(O,">$base/$whitelistdb.tmp")) {
-  binmode(F);
-  binmode(O);
+ if (open(F,'<',"$base/$whitelistdb") && open(O,'>',"$base/$whitelistdb.tmp")) {
+  binmode F;
+  binmode O;
   local $/="\n";
   <F>; print O "\n";
-  while(<F>) {
+  while (<F>) {
    my ($a,$rec)=split("\002",$_);
    my ($added,$updated)=split("\003",$rec);
    next if $t>$added || length($a)>60;
@@ -186,13 +186,13 @@ if (rand()< .05) {
   rename("$base/$whitelistdb.tmp","$base/$whitelistdb");
  }
 
- if (open(F,"<$base/goodhosts") && open(O,">$base/goodhosts.tmp")) {
-  binmode(F);
-  binmode(O);
+ if (open(F,'<',"$base/goodhosts") && open(O,'>',"$base/goodhosts.tmp")) {
+  binmode F;
+  binmode O;
   $t=time - 24*3600*20;
   local $/="\n";
   <F>; print O "\n";
-  while(<F>) {
+  while (<F>) {
    my ($a,$time)=split("\002",$_);
    next if $time > 99999999 && $t > $time;
    print O;
@@ -238,7 +238,7 @@ sub whitelisted {
  return 1 if $whiteRE && $m=~/$whiteRE/iso;
  # we should test whitere against "clean"ed mail, but I don't want to waste the cpu time
  $m=~s/\015\012\015\012.*/\015\012/s; # remove body
- while($m=~/([^:<>,;"'\(\)\s\[\]]+\@[^<>,;"'\(\)\s\?\[\]]+\.[^<>,;"'\(\)\s\?\[\]]+)/gi) {
+ while ($m=~/([^:<>,;"'\(\)\s\[\]]+\@[^<>,;"'\(\)\s\?\[\]]+\.[^<>,;"'\(\)\s\?\[\]]+)/gi) {
   return 1 if $Whitelist{lc $1};
  }
  0;
@@ -261,7 +261,7 @@ sub checkham {
 
 sub get {
  my ($fn,$sub)=@_;
- open(F,"<$fn") or return '';
+ open(F,'<',$fn) or return '';
  binmode F;
  my $m;
  read(F,$m,$MaxRebuildBytes);
@@ -287,7 +287,7 @@ sub add {
  my ($helo)=$_=~/helo=(.*?)\)/i;
  $Helo{lc $helo}->[$spam]+=$factor;
  $_=clean($_);
- while(/([-\$A-Za-z0-9\'\.!\240-\377]+)/g) {
+ while (/([-\$A-Za-z0-9\'\.!\240-\377]+)/g) {
   next if length($1)>20 || length($1)<2;
   $nt=lc $1; $nt=~s/[,.']+$//; $nt=~s/!!!+/!!/g; $nt=~s/--+/-/g;
   next unless $nt;
@@ -358,7 +358,7 @@ sub tick {
   print "$Tick $stars \r";
 }
 sub getmaxtick {
-  if (open(F,"<$_[0].mt")) {
+  if (open(F,'<',"$_[0].mt")) {
    $MaxTick = <F>;
    close F;
    $MaxTick=~y/0-9//cd;
@@ -368,7 +368,7 @@ sub getmaxtick {
   print "mt=$MaxTick\n";
 }
 sub putmaxtick {
-  open(F,">$_[0].mt");
+  open(F,'>',"$_[0].mt");
   print F $Tick;
   close F;
 }
@@ -388,7 +388,7 @@ sub uploadgreylist {
   $stop=1;
   if (open(F,shift(@logs))) {
    local $/="\n";
-   while(<F>) {
+   while (<F>) {
     my ($date,$ip,$i1,$i2,$m);
     next unless ($date,$ip,$i1,$i2,$m)=/($gooddays) \S+ ((\d+)\.(\d+)\.\d+)\.\d+ .* to: \S+ (.*)/io;
     next if $locals{$i1} || $locals{"$i1.$i2"};
@@ -429,7 +429,7 @@ Content-Length: $len
 
 $st";
   print $s $connect;
-  $s->close;
+  $s->close();
   print "uploaded $len bytes\n";
  } else {
   print "Couldn't connect to assp.sourceforge.net to upload greylist\n";

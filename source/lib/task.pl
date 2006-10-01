@@ -11,7 +11,7 @@ $modversion=' beta 0';
 
 use bytes; # get rid of anoying 'Malformed UTF-8' messages
 
-# task states: RUN READ WRITE DELAY SUSPEND
+# task states: RUN READ WRITE DELAY SUSPEND FINISH
 # task priorities: HIGH NORM IDLE
 # %Tasks -- available tasks
 # @Tasks -- tasks queue
@@ -20,11 +20,13 @@ use bytes; # get rid of anoying 'Malformed UTF-8' messages
 use IO::Select;
 
 sub newTask {
- my ($handler,$priority,$class,$suspended)=@_;
- return unless $handler;
+ my ($tref,$priority,$class,$suspended)=@_;
+ return unless $tref;
  my $tid=++$TaskID;
  my $task=$Tasks{$tid}={};
- $task->{handler}=$handler;
+ $task->{name}=$tref->[0];
+ $task->{handler}=$tref->[1];
+ $task->{coro}=new Coroutine($task->{handler})->wrap();
  $task->{priority}=$priority||='NORM';
  $task->{state}=$suspended=$suspended ? 'SUSPEND' : 'RUN';
  $task->{class}=$class||='DEFAULT';
@@ -39,16 +41,13 @@ sub doneTask {
  $tid||=$CurTaskID;
  return unless exists $Tasks{$tid};
  my $task=$Tasks{$tid};
- my $class=$task->{class};
- delete $Tasks{$tid};
- $TaskStats{$class}->{finished}++;
+ $task->{state}='FINISH';
 }
 
 sub doneAllTasks {
  while (my ($tid,$task)=each(%Tasks)) {
-  my $class=$task->{class};
-  delete $Tasks{$tid};
-  $TaskStats{$class}->{finished}++;
+  my $task=$Tasks{$tid};
+  $task->{state}='FINISH';
  }
 }
 
@@ -89,7 +88,7 @@ sub resumeTask {
 }
 
 sub waitTaskRead {
- my ($tid,$fh,$timeout)=@_;
+ my ($tid,$handle,$timeout)=@_;
  return unless defined $tid;
  $tid||=$CurTaskID;
  return unless exists $Tasks{$tid};
@@ -97,13 +96,13 @@ sub waitTaskRead {
  my $task=$Tasks{$tid};
  if ($task->{state} eq 'RUN') {
   $task->{state}='READ';
-  $task->{fh}=$fh;
+  $task->{handle}=$handle;
   $task->{timeline}=($AvailHiRes ? Time::HiRes::time() : time-(1e-6))+$timeout;
  }
 }
 
 sub waitTaskWrite {
- my ($tid,$fh,$timeout)=@_;
+ my ($tid,$handle,$timeout)=@_;
  return unless defined $tid;
  $tid||=$CurTaskID;
  return unless exists $Tasks{$tid};
@@ -111,7 +110,7 @@ sub waitTaskWrite {
  my $task=$Tasks{$tid};
  if ($task->{state} eq 'RUN') {
   $task->{state}='WRITE';
-  $task->{fh}=$fh;
+  $task->{handle}=$handle;
   $task->{timeline}=($AvailHiRes ? Time::HiRes::time() : time-(1e-6))+$timeout;
  }
 }
@@ -149,29 +148,32 @@ sub doTask {
  my $thisTime=$AvailHiRes ? Time::HiRes::time() : time+(1e-6);
  my $timeline=$thisTime+(1e+6);
  # count tasks per state, find nearest timeline
- my ($allCnt,$runCnt,$waitCnt,$delayCnt,$suspendCnt)=(0)x5;
- my (@rfhs,@wfhs);
+ my ($allCnt,$runCnt,$waitCnt,$delayCnt,$suspendCnt,$finishCnt)=(0)x6;
+ my (@rhs,@whs);
  foreach my $tid (@Tasks) {
   next unless exists $Tasks{$tid};
-  $allCnt++;
   my $task=$Tasks{$tid};
-  if ($task->{state} eq 'SUSPEND') {
-   $suspendCnt++;
-  } elsif ($task->{state} eq 'RUN') {
+  if ($task->{state} eq 'RUN') {
    $timeline=$thisTime;
    $runCnt++;
+  } elsif ($task->{state} eq 'SUSPEND') {
+   $suspendCnt++;
+  } elsif ($task->{state} eq 'FINISH') {
+   $timeline=$thisTime;
+   $finishCnt++;
   } else {
    $timeline=$task->{timeline} if $task->{timeline}<$timeline;
    if ($task->{state} eq 'READ') {
-    push(@rfhs,$task->{fh});
+    push(@rhs,$task->{handle});
     $waitCnt++;
    } elsif ($task->{state} eq 'WRITE') {
-    push(@wfhs,$task->{fh});
+    push(@whs,$task->{handle});
     $waitCnt++;
    } elsif ($task->{state} eq 'DELAY') {
     $delayCnt++;
    }
   }
+  $allCnt++;
  }
  # adjust timeline
  $timeline=$thisTime if $timeline<$thisTime;
@@ -182,20 +184,16 @@ sub doTask {
   $idleTime-=$statTime;
  }
  # wait/sleep as much as possible
- my ($rfhs,$wfhs);
+ my ($rhs,$whs);
  if ($waitCnt) {
-  ($rfhs,$wfhs)=IO::Select->select(new IO::Select(@rfhs),new IO::Select(@wfhs),undef,$timeline-$thisTime);
- } elsif ($runCnt) {
+  ($rhs,$whs)=IO::Select->select(new IO::Select(@rhs),new IO::Select(@whs),undef,$timeline-$thisTime);
+ } elsif ($runCnt || $finishCnt) {
   # empty
  } elsif ($delayCnt) {
   $AvailHiRes ? Time::HiRes::sleep($timeline-$thisTime) : select(undef,undef,undef,$timeline-$thisTime); # emulate sleep
  } elsif ($suspendCnt) {
   sleep(1);
  }
-
-##
-##print "$waitCnt,$runCnt,$delayCnt,$suspendCnt\n";
-
  # cpu stats
  if ($CanStatCPU) {
   my $statTime=Time::HiRes::time();
@@ -214,8 +212,8 @@ sub doTask {
     $task->{result}=0;
     $task->{state}='RUN';
    }
-   foreach my $fh (@$rfhs) {
-    if ($task->{fh}==$fh) {
+   foreach my $h (@$rhs) {
+    if ($task->{handle}==$h) {
      $task->{result}=1;
      $task->{state}='RUN';
      last;
@@ -226,8 +224,8 @@ sub doTask {
     $task->{result}=0;
     $task->{state}='RUN';
    }
-   foreach my $fh (@$wfhs) {
-    if ($task->{fh}==$fh) {
+   foreach my $h (@$whs) {
+    if ($task->{handle}==$h) {
      $task->{result}=1;
      $task->{state}='RUN';
      last;
@@ -239,6 +237,8 @@ sub doTask {
     $task->{state}='RUN';
    }
   } elsif ($task->{state} eq 'SUSPEND') { # update suspended task
+   # empty
+  } elsif ($task->{state} eq 'FINISH') { # update finished task
    # empty
   }
  }
@@ -257,6 +257,10 @@ sub doTask {
    }
   } elsif ($task->{state} eq 'SUSPEND') {
    push(@suspend,$tid);
+  } elsif ($task->{state} eq 'FINISH') {
+   my $class=$task->{class};
+   $TaskStats{$class}->{finished}++;
+   delete $Tasks{$tid}; # dispose
   } else { # READ WRITE DELAY tasks
    push(@wait,$tid);
   }
@@ -276,7 +280,7 @@ sub doTask {
    my $class=$task->{class};
    $TaskStats{$class}->{calls}++;
    $CurTaskID=$tid;
-   my @ret=$task->{handler}->($kernelTime,$userTime); # run task
+   my @ret=$task->{coro}->($kernelTime,$userTime); # run task
    # cpu stats
    if ($CanStatCPU) {
     $TaskStats{$class}->{user_time}+=$userTime;
@@ -284,25 +288,16 @@ sub doTask {
     $TaskStats{$class}->{max_user_time}=$userTime if $userTime>$TaskStats{$class}->{max_user_time};
    }
    $CurTaskID=-1;
-   if (@ret) {
-    push(@Tasks,$tid); $allCnt++; # enqueue task
-   } else {
-    # task might have been deleted outside
-    if (exists $Tasks{$tid}) { 
-     delete $Tasks{$tid}; # doneTask
-     $TaskStats{$class}->{finished}++;
-    }
-   }
-  } else {
-   push(@Tasks,$tid); $allCnt++; # enqueue task
+   $task->{state}='FINISH' unless @ret; # doneTask
   }
+  push(@Tasks,$tid); $allCnt++; # enqueue task
  }
  # cpu stats
  if ($CanStatCPU) {
   my $statTime=Time::HiRes::time();
   $kernelTime+=$statTime;
   $KernelStats{kernel_time}+=$kernelTime;
-  $KernelStats{min_kernel_time}=$kernelTime if $kernelTime<$KernelStats{min_kernel_time} || !$KernelStats{min_kernel_time};
+  $KernelStats{min_kernel_time}=$kernelTime if $kernelTime && $kernelTime<$KernelStats{min_kernel_time} || !$KernelStats{min_kernel_time};
   $KernelStats{max_kernel_time}=$kernelTime if $kernelTime>$KernelStats{max_kernel_time};
   $KernelStats{idle_time}+=$idleTime;
   $KernelStats{user_time}+=$userTime;
@@ -310,19 +305,19 @@ sub doTask {
  return $allCnt;
 }
 
-sub coro {
- return new Coroutine($_[0])->wrap();
-}
-
 sub jump {
  goto shift if defined $_[0];
 }
 
 sub cede {
- # if $_[1] is set, cede only on n-th call
- goto $_[0] if $_[1] && ++$Tasks{$CurTaskID}->{cedes} % $_[1];
+ if ($_[1]) {
+  my $time=$AvailHiRes ? Time::HiRes::time() : time;
+  goto $_[0] if $time-$Tasks{$CurTaskID}->{last_cede}<0.1;
+  $Tasks{$CurTaskID}->{last_cede}=$time;
+ }
  return Coroutine::yield($_[0],[1]);
 }
+
 
 sub call {
  return Coroutine::call($_[0],$_[1]);
@@ -365,18 +360,28 @@ sub wrap {
   while (1) {
    my ($sub,$label)=@{$stack->[@$stack-1]};
    # cpu stats
-   if ($main::CanStatCPU) {
-    my $statTime=Time::HiRes::time();
-    $_[0]+=$statTime;
-    $_[1]-=$statTime;
-   }
+   my $statTime=-Time::HiRes::time() if $main::CanStatCPU;
    # call coroutine sub
    @ret=$sub->($label,@ret); # support return value
    # cpu stats
    if ($main::CanStatCPU) {
-    my $statTime=Time::HiRes::time();
+    $statTime+=Time::HiRes::time();
     $_[1]+=$statTime;
     $_[0]-=$statTime;
+    if ($statTime>0.1) {
+     if ($sub==$main::Tasks{$main::CurTaskID}->{handler}) {
+      main::mlog(0,'excessive time: '.(main::formatTimeInterval($statTime,1)).' in '.($main::Tasks{$main::CurTaskID}->{name}).'()'.($label ? " at $label":''));
+     } else {
+      my $found;
+      while (my ($k,$v)=each(%{$main::Tasks{$main::CurTaskID}})) {
+       next unless ref($v) eq 'ARRAY';
+       next unless $v->[1]==$sub;
+       main::mlog(0,'excessive time: '.(main::formatTimeInterval($statTime,1))." in $k()".($label ? " at $label":''));
+       $found=1;
+      }
+      main::mlog(0,'excessive time: '.(main::formatTimeInterval($statTime,1))." in $sub unknown()".($label ? " at $label":'')) unless $found;
+     }
+    }
    }
    if (ref($ret[0]) eq 'Coroutine::CALL') {
     $stack->[@$stack-1]->[1]=$ret[0]->[0];

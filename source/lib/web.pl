@@ -35,7 +35,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
              '<span style="color:white; background-color:#004699">',
              '<span style="color:white; background-color:#990099">');
 
-@News=('smtpAuthServer','SMTPClientReadTimeout','SMTPServerReadTimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay',
+@News=('smtpAuthServer','SMTPTimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay',
        'GreetDelayError','ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
        'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
@@ -145,18 +145,21 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
 #                HTTP Socket handlers
 
 sub taskNewWebConnection {
- my ($ip,$port);
- return coro(sub{&jump;
+ my ($this,$ip,$port);
+ return ['taskNewWebConnection',sub{&jump;
   while ($WebSocket->opened()) {
-   waitTaskRead(0,$WebSocket,7);
+   waitTaskRead(0,$WebSocket,10);
    return cede('L1'); L1:
    next unless getTaskWaitResult(0);
    next unless my $client=$WebSocket->accept();
-   binmode($client);
-   $ip=$client->peerhost();
-   $port=$client->peerport();
+   binmode $client;
+   $Con{$client}={};
+   $this=$Con{$client};
+   $ip=$this->{ip}=$client->peerhost();
+   $port=$this->{port}=$client->peerport();
+   $this->{mNLOGRE}=matchIP($ip,'noLog');
    if ($allowAdminConnections && !matchIP($ip,'allowAdminConnections')) {
-    mlog(0,"admin connection from $ip:$port rejected by allowAdminConnections") unless $noLog && $ip=~$NLOGRE;
+    mlog(0,"admin connection from $ip:$port rejected by allowAdminConnections") unless $this->{mNLOGRE};
     $client->close();
     $Stats{admConnDenied}++;
     next;
@@ -164,31 +167,41 @@ sub taskNewWebConnection {
    # logging is done later (in webRequest()) due to /shutdown_frame page, which auto-refreshes
    $Con{$client}->{itid}=newTask(taskWebTraffic($client),'NORM','W');
   }
- });
+ }];
 }
 
 sub taskWebTraffic {
- my $fh=shift;
- my ($this,$buf,$resp,$resph,$respb,$time,$enc,$deflater);
- return coro(sub{&jump;
-  $this=$Con{$fh};
-  while ($fh->opened()) {
-   waitTaskRead(0,$fh,7);
+ my $ch=shift;
+ my ($this,$ip,$port,$buf,$resp,$resph,$respb,$time,$enc,$deflater,$written);
+ return ['taskWebTraffic',sub{&jump;
+  $this=$Con{$ch};
+  $ip=$this->{ip};
+  $port=$this->{port};
+  while ($ch->opened()) {
+   waitTaskRead(0,$ch,60);
    return cede('L1'); L1:
-   next unless getTaskWaitResult(0);
+   unless (getTaskWaitResult(0)) {
+    # connection timed out
+    mlog(0,"admin connection from $ip:$port; client read timeout") unless $this->{mNLOGRE};
+    $ch->close();
+    last;
+   }
    ($buf)=();
-   last unless $fh->sysread($buf,4096)>0; # connection closed by peer
+   unless ($ch->sysread($buf,$IncomingBufSize)>0) {
+    # connection closed by peer
+    mlog(0,"admin connection from $ip:$port; connection closed unexpectedly by client") unless $this->{mNLOGRE};
+    last;
+   }
    $this->{reqbuf}.=$buf;
    # throw away connections longer than 1M to prevent flooding
    if (length($this->{reqbuf})>1030000) {
-    $fh->close();
+    $ch->close();
     last;
    }
    ($resp)=();
    $this->{reqblen}=$1 if !$this->{reqblen} && $this->{reqbuf}=~/Content-length: (\d+)/i; # POST request?
    if ($this->{reqbuf}=~/^(.*?\015\012)\015\012(.*)/s && length($2)>=$this->{reqblen}) {
-    return call('L2',webRequest($fh,$1,$2)); L2:
-    $resp=shift;
+    return call('L2',webRequest($ch,$1,$2)); L2: $resp=shift;
    }
    if ($resp=~/^(.*?\n)\n(.*)/s) {
     ($resph,$respb)=($1,$2);
@@ -213,14 +226,34 @@ sub taskWebTraffic {
     }
     $resph.='Content-Length: '.length($respb)."\n";
     $resph=~s/\n/\015\012/g;
-    print $fh "$resph\015\012$respb";
-    # close connection
-    $fh->close();
+    $resp="$resph\015\012$respb";
+    while ($ch->opened()) {
+     waitTaskWrite(0,$ch,60);
+     return cede('L3'); L3:
+     unless (getTaskWaitResult(0)) {
+      # connection timed out
+      mlog(0,"admin connection from $ip:$port; client write timeout") unless $this->{mNLOGRE};
+      $ch->close();
+      last;
+     }
+     unless (length($resp)) {
+      # response sent
+      $ch->close();
+      last;
+     }
+     $written=syswrite($ch,$resp,$OutgoingBufSize);
+     unless ($written>0) {
+      # connection closed by peer
+      mlog(0,"admin connection from $ip:$port; connection closed unexpectedly by client") unless $this->{mNLOGRE};
+      last;
+     }
+     substr($resp,0,$written,''); # four-argument substr()
+    }
     last;
    }
   }
-  delete $Con{$fh};
- });
+  delete $Con{$ch};
+ }];
 }
 
 #####################################################################################
@@ -265,22 +298,57 @@ sub HTTPStrToTime {
  }
 }
 
-# add tooltip span tags (in place)
+# add multiple tooltips span tags
 sub addTooltips {
- my $class;
- $class='tooltip_elem' unless $_[1];
- if ($ShowTooltipsEmail) {
-  # handle email addresses
-  $_[0]=~s/($EmailAdrRe\@$EmailDomainRe)/<span class="$class" _class="$class" _class_active="tooltip_email" _param="1" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$1<\/span>/g;
- }
- if ($ShowTooltipsIP) {
-  # handle IP addresses
-  $_[0]=~s/((?<![@.\w\-])\b(?:\d{1,3}\.){3}\d{1,3}\b(?![@.\w\-]))/<span class="$class" _class="$class" _class_active="tooltip_ip" _param="2" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$1<\/span>/g;
- }
- if ($ShowTooltipsHost) {
-  # handle host names
-  $_[0]=~s/((?<![@.\w\-])\b(?:[\w\-]+\.)+[a-z]{2,5}\b(?![@.\w\-]))/<span class="$class" _class="$class" _class_active="tooltip_host" _param="3" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$1<\/span>/gi;
- }
+ my ($text,$class);
+ my $ret;
+ my $sref=$Tasks{$CurTaskID}->{addTooltips}||=[sub{
+  ($text,$class)=@_;
+ },sub{&jump;
+  $class||='tooltip_elem';
+  if ($ShowTooltipsEmail) {
+   # handle email addresses
+   ($ret)=();
+   while ($text=~/\G(.*?)($EmailAdrRe\@$EmailDomainRe)/cgso) { # /c - keep pos() on match fail
+    $ret.=<<EOT;
+$1<span class="$class" _class="$class" _class_active="tooltip_email" _param="1" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$2</span>
+EOT
+    chomp($ret);
+    return cede('L1',1); L1:
+   }
+   $ret.=$1 if $text=~/\G(.*)/s; # remainder
+   $text=$ret;
+  }
+  if ($ShowTooltipsIP) {
+   # handle IP addresses
+   ($ret)=();
+   while ($text=~/\G(.*?)((?<![@.\w\-])\b(?:\d{1,3}\.){3}\d{1,3}\b(?![@.\w\-]))/cgso) { # /c - keep pos() on match fail
+    $ret.=<<EOT;
+$1<span class="$class" _class="$class" _class_active="tooltip_ip" _param="2" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$2</span>
+EOT
+    chomp($ret);
+    return cede('L2',1); L2:
+   }
+   $ret.=$1 if $text=~/\G(.*)/s; # remainder
+   $text=$ret;
+  }
+  if ($ShowTooltipsHost) {
+   # handle host names
+   ($ret)=();
+   while ($text=~/\G(.*?)((?<![@.\w\-])\b(?:[\w\-]+\.)+[a-z]{2,5}\b(?![@.\w\-]))/cgiso) { # /c - keep pos() on match fail
+    $ret.=<<EOT;
+$1<span class="$class" _class="$class" _class_active="tooltip_host" _param="3" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$2</span>
+EOT
+    chomp($ret);
+    return cede('L3',1); L3:
+   }
+   $ret.=$1 if $text=~/\G(.*)/s; # remainder
+   $text=$ret;
+  }
+  return $text;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub checkUpdate {
@@ -312,12 +380,13 @@ sub checkUpdate {
 #                Web Configuration functions
 
 sub webRequest {
- my ($fh,$reqh,$reqb);
+ my ($ch,$reqh,$reqb);
  my ($i,%_http,$http,$page,$query,%get,$q,$k,$v,%post,$r);
  my ($user,$pass,$ip,$port,$args,%cookie,$c,%_gpc,$gpc,$auth);
  my $sref=$Tasks{$CurTaskID}->{webRequest}||=[sub{
-  ($fh,$reqh,$reqb)=@_;
+  ($ch,$reqh,$reqb)=@_;
  },sub{&jump;
+  $this=$Con{$ch};
   # parse http request headers
   $i=0;
   (%_http)=map{++$i % 2 ? lc $_ : $_} map/^([^: ]*)[: ]{0,2}(.*)/, split(/\015\012/,$reqh);
@@ -383,8 +452,8 @@ EOT
   $gpc=\%_gpc;
   ($auth)=$http->{authorization}=~/Basic (\S+)/i;
   ($user,$pass)=split(':',base64decode($auth));
-  $ip=$fh->peerhost();
-  $port=$fh->peerport();
+  $ip=$this->{ip};
+  $port=$this->{port};
   if (!$webAdminPassword || $pass eq $webAdminPassword) {
    if ($page!~/shutdown_frame|favicon.ico|get/i) {
     # only count requests for pages without meta refresh tag
@@ -422,7 +491,7 @@ EOT
    }
   } else {
    if ($pass ne '') {
-    mlog(0,"admin connection from $ip:$port; page:$page rejected -- authorization failed") unless $noLog && $ip=~$NLOGRE;
+    mlog(0,"admin connection from $ip:$port; page:$page rejected -- authorization failed") unless $this->{mNLOGRE};
     $Stats{admConnDenied}++;
    }
    return <<EOT;
@@ -576,7 +645,7 @@ sub webLists {
  my ($http,$gpc);
  my ($t,$last_visit,$this_visit,$since,@sel_maxages,$maxage,$sel_maxage_html,$maxage_desc,$def_maxage,$sel_maxage,$s,$adr,$cnt);
  my ($ip,$range,$recs,@a,$added,$blocked,$reason,$name,$dat,$expires,$event,$ip3,$mlink,$interval,$intfmt,$hash,$color,$list);
- my ($rec,$updated,$age,$l,$cookie_exp,$cookies);
+ my ($rec,$updated,$age,$l,$cookie_exp,$cookies,$fh);
  my $sref=$Tasks{$CurTaskID}->{webLists}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -827,34 +896,34 @@ sub webLists {
     if ($1 eq 'R') {
      $gpc->{list}='red'; # update radios
      $RedlistObject->flush() if $RedlistObject;
-     open(F,"<$base/$redlistdb");
+     $fh=IO::File->new("<$base/$redlistdb");
      $s.='<div class="text"><b>Redlisted addresses ('.$maxage_desc.')</b></div>';
     } else {
      $gpc->{list}='white'; # update radios
      $WhitelistObject->flush() if $WhitelistObject;
-     open(F,"<$base/$whitelistdb");
+     $fh=IO::File->new("<$base/$whitelistdb");
      $s.='<div class="text"><b>Whitelisted addresses ('.$maxage_desc.')</b></div>';
     }
-    local $/="\n";
-    ($l)=();
-    while ($l=<F>) {
-     ($rec)=();
-     ($adr,$rec)=$l=~/([^\002]*)\002(.*)/;
-     ($added,$updated)=split("\003",$rec);
-     $age=$t-$added;
-     if (length($adr)>1 && (!$maxage || ($age<$maxage))) {
-      $dat=localtime($added);
-      $dat=~s/... (...) +(\d+) (........) ..(..)/$1-$2-$4 $3/;
-      # maillog link
-      $mlink="$dat addition: $adr";
-      $mlink=~s/ *$//;
-      $mlink=escapeQuery($mlink);
-      $mlink="logs?search=$mlink&log=mlog&file=last&limit=1&nocontext=";
-      $s.='<div class="text">'.++$cnt.'. '.$adr.' added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age,0).'</div>';
+    if (defined $fh) {
+     while (local $/="\n",$l=<$fh>) {
+      return cede('L1',1); L1:
+      ($adr,$rec)=$l=~/([^\002]*)\002(.*)/;
+      ($added,$updated)=split("\003",$rec);
+      $age=$t-$added;
+      if (length($adr)>1 && (!$maxage || ($age<$maxage))) {
+       $dat=localtime($added);
+       $dat=~s/... (...) +(\d+) (........) ..(..)/$1-$2-$4 $3/;
+       # maillog link
+       $mlink="$dat addition: $adr";
+       $mlink=~s/ *$//;
+       $mlink=escapeQuery($mlink);
+       $mlink="logs?search=$mlink&log=mlog&file=last&limit=1&nocontext=";
+       $s.='<div class="text">'.++$cnt.'. '.$adr.' added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age,0).'</div>';
+      }
      }
+     $fh->close();
+     return cede('L2'); L2:
     }
-    undef $/;
-    close F;
    }
    $s.='<div class="text">';
    if ($cnt) {
@@ -864,7 +933,7 @@ sub webLists {
    }
    $s.='</div>';
   }
-  addTooltips($s);
+  return call('L3',addTooltips($s)); L3: $s=shift;
   # cookie expiration date
   $cookie_exp=$t+2592000; # one month
   $cookie_exp=gmtime($cookie_exp);
@@ -955,7 +1024,7 @@ EOT
 sub webAnalyze {
  my ($http,$gpc);
  my ($s,$st,$wl,%wl,$res,$mail,$fil,$coll,$c,$ip,$ip3,$helo,$mailfrom);
- my ($lt,$t,$nt,%seen,%got,$j,$cnt,$g,$p1,$p2,$p,@t,$v,$h,$adr,$d,$name);
+ my ($lt,$t,$nt,%seen,%got,$j,$cnt,$g,$p1,$p2,$p,@t,$v,$h,$adr,$d,$name,$fh);
  my $sref=$Tasks{$CurTaskID}->{webAnalyze}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -975,14 +1044,15 @@ sub webAnalyze {
     } elsif (!$coll) {
      mlog(0,"nonexistent collection not allowed while viewing corpus file '$fil'");
      $res.='<div class="text"><span class="negative">Access denied</span></div>';
-    } elsif (!open(F,"<$base/${$coll}/$fil")) {
-     mlog(0,"failed to open corpus file for reading '${$coll}/$fil': $!");
+    } elsif (!open($fh,'<',"$base/${$coll}/$fil")) {
+     mlog(0,"failed to open corpus file for reading '$base/${$coll}/$fil': $!");
      $res='<div class="text"><span class="negative">'.ucfirst($!).'</span></div>';
     } else {
-     binmode F;
+     binmode $fh;
      local $/;
-     $mail=<F>;
-     close F;
+     $mail=<$fh>;
+     undef $/;
+     close $fh;
     }
    }
   }
@@ -1075,14 +1145,21 @@ sub webAnalyze {
    $wl.="<b>mail matches Black RE: '$^R'</b><br />\n" if $mail=~$blackReRE;
    ($v,$lt,$t,$nt,%seen,%got)=();
    while ($mail=~/([-\$A-Za-z0-9\'\.!\240-\377]+)/g) {
-    next if length($1)>20 || length($1)<2;
-    $nt=lc $1; $nt=~s/[,.']+$//; $nt=~s/!!!+/!!/g; $nt=~s/--+/-/g;
+    $nt=$1;
+    return cede('L1',1); L1:
+    next if length($nt)>20 || length($nt)<2;
+    $nt=lc $nt;
+    $nt=~s/[,.']+$//;
+    $nt=~s/!!!+/!!/g;
+    $nt=~s/--+/-/g;
     next unless $nt;
-    $lt=$t; $t=$nt;
+    $lt=$t;
+    $t=$nt;
     next unless (length($lt)>1 || ($lt && length($t)>1));
-     $j="$lt $t";
+    $j="$lt $t";
     next if $seen{$j}++>1; # first two occurances are significant
-    push(@t,$v) if $v=$Spamdb{$j}; $got{$j}=$v if $v;
+    push(@t,$v) if $v=$Spamdb{$j};
+    $got{$j}=$v if $v;
    }
    $cnt=0;
    $s.="<tr><th style=\"text-align: right;\"><span class=\"negative\">Bad Words</span></th>
@@ -1121,7 +1198,7 @@ sub webAnalyze {
    $mail=~s/<\/textarea>/\/textarea/gi;
    $mail=~s/(hlo|rcpt|ssub|href|atxt|blines|jscripttag|boldifytext|randword|linkedimage|lotsaspaces)/uc($1)/ge;
   }
-  addTooltips($wl);
+  return call('L2',addTooltips($wl)); L2: $wl=shift;
   return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -1186,9 +1263,9 @@ EOT
 }
 
 sub SMhelo {
- my ($fh,$l)=@_;
+ my ($ch,$l)=@_;
  reply(@_) if $l;
- my $this=$Con{$fh};
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
@@ -1199,38 +1276,38 @@ sub SMhelo {
    SMTPTraffic($client,"HELO $helo\015\012");
    # did ASSP say something to us?
    if ($Con{$client}->{outgoing}) { # yes, react
-    SMfrom($fh,'');
+    SMfrom($ch,'');
    } else {  # no, wait for SMTP server response
     $this->{getline}=\&SMfrom;
    }
   }
  } else {
-  SMdone($fh);
+  SMdone($ch);
  }
 }
 
 sub SMskipok {
- my ($fh,$l)=@_;
- my $this=$Con{$fh};
+ my ($ch,$l)=@_;
+ my $this=$Con{$ch};
  my $client=$this->{friend};
- slog($fh,"$l (in response to NOOP)",0,'S');
+ slog($ch,"$l (in response to NOOP)",0,'S');
  if ($l=~/^250/ && (my $helo=$Con{$client}->{_helo})) {
   SMTPTraffic($client,"HELO $helo\015\012");
   # did ASSP say something to us?
   if ($Con{$client}->{outgoing}) { # yes, react
-   SMfrom($fh,'');
+   SMfrom($ch,'');
   } else {  # no, wait for SMTP server response
    $this->{getline}=\&SMfrom;
   }
  } else {
-  SMdone($fh);
+  SMdone($ch);
  }
 }
 
 sub SMfrom {
- my ($fh,$l)=@_;
+ my ($ch,$l)=@_;
  reply(@_) if $l;
- my $this=$Con{$fh};
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
@@ -1238,19 +1315,19 @@ sub SMfrom {
   SMTPTraffic($client,"MAIL FROM:<$Con{$client}->{_from}>\015\012");
   # did ASSP say something to us?
   if ($Con{$client}->{outgoing}) { # yes, react
-   SMrcpt($fh,'');
+   SMrcpt($ch,'');
   } else {  # no, wait for SMTP server response
    $this->{getline}=\&SMrcpt;
   }
  } else {
-  SMdone($fh);
+  SMdone($ch);
  }
 }
 
 sub SMrcpt {
- my ($fh,$l)=@_;
+ my ($ch,$l)=@_;
  reply(@_) if $l;
- my $this=$Con{$fh};
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
@@ -1258,19 +1335,19 @@ sub SMrcpt {
   SMTPTraffic($client,"RCPT TO:<$rcpt>\015\012");
   # did ASSP say something to us?
   if ($Con{$client}->{outgoing}) { # yes, react
-   SMdata($fh,'');
+   SMdata($ch,'');
   } else {  # no, wait for SMTP server response
    $this->{getline}=\&SMdata;
   }
  } else {
-  SMdone($fh);
+  SMdone($ch);
  }
 }
 
 sub SMdata {
- my ($fh,$l)=@_;
+ my ($ch,$l)=@_;
  reply(@_) if $l;
- my $this=$Con{$fh};
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
@@ -1280,7 +1357,7 @@ sub SMdata {
   SMTPTraffic($client,"RCPT TO:<$rcpt>\015\012");
   # did ASSP say something to us?
   if ($Con{$client}->{outgoing}) { # yes, react
-   SMdata($fh,'');
+   SMdata($ch,'');
   } else {  # no, wait for SMTP server response
    $this->{getline}=\&SMdata;
   }
@@ -1289,20 +1366,20 @@ sub SMdata {
    SMTPTraffic($client,"DATA\015\012");
    # did ASSP say something to us?
    if ($Con{$client}->{outgoing}) { # yes, react
-    SMdata2($fh,'');
+    SMdata2($ch,'');
    } else {  # no, wait for SMTP server response
     $this->{getline}=\&SMdata2;
    }
   } else {
-   SMdone($fh);
+   SMdone($ch);
   }
  }
 }
 
 sub SMdata2 {
- my ($fh,$l)=@_;
+ my ($ch,$l)=@_;
  reply(@_) if $l;
- my $this=$Con{$fh};
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
@@ -1316,12 +1393,12 @@ sub SMdata2 {
    last if $line=~/^\.(?:\015\012)?$/;
   }
  }
- SMdone($fh);
+ SMdone($ch);
 }
 
 sub SMdone {
- my ($fh,$l)=@_;
- my $this=$Con{$fh};
+ my ($ch,$l)=@_;
+ my $this=$Con{$ch};
  my $client=$this->{friend};
  doneSession($client,0) if $Con{$client}->{connected};
 }
@@ -1344,8 +1421,8 @@ sub webSimulate {
    } elsif (!$coll) {
     mlog(0,"nonexistent collection not allowed while viewing corpus file '$fil'");
     $res.='<div class="text"><span class="negative">Access denied</span></div>';
-   } elsif (!open(F,"<$base/${$coll}/$fil")) {
-    mlog(0,"failed to open corpus file for reading '${$coll}/$fil': $!");
+   } elsif (!open(F,'<',"$base/${$coll}/$fil")) {
+    mlog(0,"failed to open corpus file for reading '$base/${$coll}/$fil': $!");
     $res='<div class="text"><span class="negative">'.ucfirst($!).'</span></div>';
    } else {
     binmode F;
@@ -1379,9 +1456,9 @@ sub webSimulate {
    $body=~s/^X-Assp-$HeaderAllCRLFRe//gimo;
    $body=~s/^Received: from ([0-9\.]+).*?by\s+\Q$myName\E$HeaderValueCRLFRe//gimo;
    # prepare the session
-   my $fh="sim$SMTPSessionID";
-   NewSimSMTPConnection($fh,$ip,$port);
-   my $this=$Con{$fh};
+   my $ch="sim$SMTPSessionID";
+   NewSimSMTPConnection($ch,$ip,$port);
+   my $this=$Con{$ch};
    $this->{_helo}=$helo;
    $this->{_from}=$from;
    @{$this->{_rcpt}}=$rcpt=~/($EmailAdrRe\@$EmailDomainRe)/go;
@@ -1390,24 +1467,24 @@ sub webSimulate {
     # run it !
 ##    MainLoop();
    }
-   $mlog=$SMTPSessions{$fh}->{mlogbuf};
-   $slog=$SMTPSessions{$fh}->{slogbuf};
+   $mlog=$SMTPSessions{$ch}->{mlogbuf};
+   $slog=$SMTPSessions{$ch}->{slogbuf};
    if ($this->{header} || $this->{body}) {
     $body="$this->{header}\015\012$this->{body}";
    }
    # chop off final 'crlf dot crlf' sequence
    $body=~s/\015\012\.(?:\015\012)?$//;
-   my $sfh=$this->{sfh};
+   my $sh=$this->{sh};
    # remove SMTP session
-   delete $SMTPSessions{$sfh};
+   delete $SMTPSessions{$sh};
    # delete the Connection data
    delete $Con{$this->{friend}};
-   delete $Con{$fh};
+   delete $Con{$ch};
   }
  }
  $body=encodeHTMLEntities($body);
- addTooltips($mlog);
- addTooltips($slog);
+ return call('L1',addTooltips($mlog)); L1: $mlog=shift;
+ return call('L2',addTooltips($slog)); L2: $slog=shift;
  return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -1462,7 +1539,7 @@ sub webLogs {
  my ($t,@sel_logs,$logs,$sel_log_html,$l,@sel_files,$maxlines,$maxfiles,$sel_file_html,$f,@sel_limits);
  my ($maxmatches,$sel_limit_html,$m,$indent,$s,$res,$pat,@sary,@logs,$matches,$lines,$files,$highlightExpr);
  my (%replace,@logs,$logf,@ary,$lastoutput,$infinity,$precontext,$postcontext,$notmatched,$currentpre,$gotmatch);
- my ($seq,$i,$j,$cur,@tokens,@good,@bad,@htokens,$token,$re,$cnt,$hpat,$cookie_exp,$cookies);
+ my ($seq,$i,$j,$cur,@tokens,@good,@bad,@htokens,$token,$re,$cnt,$hpat,$cookie_exp,$cookies,$fh);
  my $sref=$Tasks{$CurTaskID}->{webLogs}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -1538,17 +1615,19 @@ sub webLogs {
   ($s,$res)=();
   $pat=$gpc->{search};
   unless ($pat) {
-   open(F,"<$base/$logs");
-   binmode(F);
-   seek(F,-$MaillogTailBytes,2) || seek(F,0,0);
-   local $/;
-   $s=<F>;
-   close F;
-   $s=encodeHTMLEntities($s);
-   if ($MaillogTailWrapColumn>0) {
-    $s=join('',map{logWrap("$_\n",$MaillogTailWrapColumn,$indent)} split(/\r?\n|\r/,$s));
+   if (open($fh,'<',"$base/$logs")) {
+    binmode $fh;
+    seek($fh,-$MaillogTailBytes,2) || seek($fh,0,0);
+    local $/;
+    $s=<$fh>;
+    undef $/;
+    close $fh;
+    $s=encodeHTMLEntities($s);
+    $s=join('',map{logWrap("$_\n",$MaillogTailWrapColumn,$indent)} split(/\r?\n|\r/,$s)) if $MaillogTailWrapColumn>0;
+    return call('L1',addTooltips($s,$gpc->{nohighlight_m})); L1: $s=shift;
+   } else {
+    mlog(0,"failed to open maillog file for reading '$base/$logs': $!");
    }
-   addTooltips($s,$gpc->{nohighlight_m});
   } elsif ($CanSearchLogs) {
    (@sary,@logs)=();
    $matches=$lines=$files=0;
@@ -1592,7 +1671,7 @@ sub webLogs {
     }
     $highlightExpr=join('|',@htokens) if @htokens;
     while ($cur && !($maxmatches && $matches>=$maxmatches && $notmatched>$postcontext) && !($maxlines && $notmatched>=$maxlines)) {
-     return cede('L1',32); L1:
+     return cede('L2',1); L2:
      $gotmatch=1;
      $gotmatch=0 if $maxmatches && $matches>=$maxmatches;
      if ($gotmatch) {
@@ -1676,8 +1755,8 @@ sub webLogs {
     $res='No results found for \''.$hpat.'\', searched in '.needEs($files,' log file','s').
          ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t,0).'.';
    }
-   addTooltips($res,$gpc->{nohighlight_m});
-   addTooltips($s,$gpc->{nohighlight_m});
+   return call('L3',addTooltips($res,$gpc->{nohighlight_m})); L3: $res=shift;
+   return call('L4',addTooltips($s,$gpc->{nohighlight_m})); L4: $s=shift;
   } else {
    $s='<p class="warning">Please install required module <a href="http://search.cpan.org/~uri/File-ReadBackwards-1.04/" rel="external">File::ReadBackwards</a>.</p>';
   }
@@ -1764,8 +1843,8 @@ sub webCorpusItem {
  return '' if $gpc->{nomoved} && ($det->[4] & 2);
  if (@{$good} || @{$bad}) {
   PeekLoop();
-  open(I,"$base/${$coll}/$fn");
-  binmode(I);
+  open(I,'<',"$base/${$coll}/$fn");
+  binmode I;
   local $/;
   my $c=<I>;
   undef $/;
@@ -1830,7 +1909,7 @@ sub webCorpus {
  my ($t,$last_visit,$this_visit,$since,@sel_colls,$coll,$sel_coll_html,$coll_desc,$def_coll,$c,@sel_maxages,$sel_maxage);
  my ($maxage,$sel_maxage_html,$maxage_desc,$def_maxage,@sel_acts,$sel_act,$act,$sel_act_html,$act_desc,$def_act);
  my ($s,$res,$done,$i,$icoll,$fil,$coll2,$det,$f,$nf,$pat,@tokens,@good,@bad,$matches,%dir2coll,$l,%s,$fil2,$rec);
- my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies,@dir,$n,$fil3);
+ my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies,@dir,$n,$fil3,$fh);
  my $sref=$Tasks{$CurTaskID}->{webCorpus}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -1970,7 +2049,8 @@ EOT
   $maxage=$t-$last_visit if $maxage<0; # 'new files' case
   ($s,$res)=();
   $done=0;
-  foreach $i (@{$gpc->{'items[]'}}) {
+  for ($n=0;$n<@{$gpc->{'items[]'}};$n++) {
+   $i=${$gpc->{'items[]'}}[$n];
    ($icoll,$fil)=$i=~/(.*)\|(.*)/;
    ($coll2)=();
    foreach $c (@Collections) {
@@ -1988,11 +2068,10 @@ EOT
    } elsif ($act eq 'delete') {
     unlink("$base/${$coll2}/$fil");
     # remove cache entry
-    return call('L1',corpusDetails("${$coll2}/$fil",1)); L1:
+    corpusDetails("${$coll2}/$fil",1);
     $done++;
    } else {
-    return call('L2',corpusDetails("${$coll2}/$fil")); L2:
-    $det=shift;
+    $det=corpusDetails("${$coll2}/$fil");
     next unless defined $det->[0];
     $f="$base/${$coll2}/$fil";
     $nf=$f;
@@ -2007,14 +2086,14 @@ EOT
      unlink("$base/$nf");
      if (rename($f,"$base/$nf")) {
       # remove old entry
-      return call('L3',corpusDetails("${$coll2}/$fil",1)); L3:
+      corpusDetails("${$coll2}/$fil",1);
       # reload new entry, turn on 'moved' bit in flags field
-      return call('L4',corpusSetFlags($nf,($det->[4])|2,1)); L4:
+      corpusSetFlags($nf,($det->[4])|2,1);
       $done++;
      } else {
       mlog(0,"failed to move corpus file from '$f' to '$base/$nf': $!");
       # reload new entry
-      return call('L5',corpusDetails($nf,1)); L5:
+      corpusDetails($nf,1);
      }
     }
    }
@@ -2037,27 +2116,30 @@ EOT
    # handle combined collections
    %dir2coll=reverse map{$_=>${$_}} @Collections;
    $CorpusObject->flush() if $CorpusObject;
-   open(F,"<$base/$corpusdb");
-   local $/="\n";
-   ($l,%s)=();
-   while ($l=<F>) {
-    ($fil2,$rec)=$l=~/([^\002]*)\002(.*)/;
-    ($dir)=();
-    ($dir,$fil2)=$fil2=~/(.*)[\\\/](.*)/;
-    @arr=split("\003",$rec);
-    $det2=\@arr;
-    next unless defined $det2->[0] && (!$maxage || $t-($det2->[0])<$maxage);
-    $flags=$det2->[4] & 12;
-    next unless $coll eq '_ham' && $flags==8 ||
-                $coll eq '_spam' && $flags==12 ||
-                $coll eq '_blocked' && $flags==4;
-    if ($res2=webCorpusItem($dir2coll{$dir},$fil2,$det2,$gpc,\@good,\@bad)) {
-     $s{$det2->[0].$fil2}=$res2;
-     $matches++;
+   if (open($fh,'<',"$base/$corpusdb")) {
+    ($l,%s)=();
+    while (local $/="\n",$l=<$fh>) {
+     return cede('L6',1); L6:
+     ($fil2,$rec)=$l=~/([^\002]*)\002(.*)/;
+     ($dir)=();
+     ($dir,$fil2)=$fil2=~/(.*)[\\\/](.*)/;
+     @arr=split("\003",$rec);
+     $det2=\@arr;
+     next unless defined $det2->[0] && (!$maxage || $t-($det2->[0])<$maxage);
+     $flags=$det2->[4] & 12;
+     next unless $coll eq '_ham' && $flags==8 ||
+                 $coll eq '_spam' && $flags==12 ||
+                 $coll eq '_blocked' && $flags==4;
+     if ($res2=webCorpusItem($dir2coll{$dir},$fil2,$det2,$gpc,\@good,\@bad)) {
+      $s{$det2->[0].$fil2}=$res2;
+      $matches++;
+     }
     }
+    close $fh;
+    $s.=join('',map{$s{$_}} reverse sort keys %s);
+   } else {
+    mlog(0,"failed to open corpusdb file for reading '$base/$corpusdb': $!");
    }
-   close F;
-   $s.=join('',map{$s{$_}} reverse sort keys %s);
   } else {
    opendir(DIR,"$base/${$coll}");
    @dir=readdir DIR;
@@ -2065,16 +2147,14 @@ EOT
    (@items)=();
    for ($n=0;$n<@dir;$n++) {
     $fil3=$dir[$n];
-    return call('L6',corpus("${$coll}/$fil3")); L6:
-    push(@items,[$fil3,(shift)->[0]]);
+    push(@items,[$fil3,corpus("${$coll}/$fil3")->[0]]);
    }
    @items=sort{$b->[1]<=>$a->[1]}
           grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
           @items;
    for ($n=0;$n<@items;$n++) {
     $i=$items[$n];
-    return call('L7',corpusDetails("${$coll}/$i->[0]")); L7:
-    if ($res2=webCorpusItem($coll,$i->[0],shift,$gpc,\@good,\@bad)) {
+    if ($res2=webCorpusItem($coll,$i->[0],corpusDetails("${$coll}/$i->[0]"),$gpc,\@good,\@bad)) {
      $s.=$res2;
      $matches++;
     }
@@ -2220,7 +2300,7 @@ sub webView {
  my ($http,$gpc);
  my ($t,@colls,$coll,$coll_desc,$c,@sel_acts,$act,$sel_act_html,$def_act,$sel_act,$s,$res);
  my ($fil,$pat,$i,@tokens,%replace,@htokens,$highlightExpr,@offsets,$h,$b,$len,$index,$left);
- my ($right,$ret,$cols,$o,$char,$temp,$det,$cookie_exp,$cookies,$JavaScript,$HTMLHeaders);
+ my ($right,$ret,$cols,$o,$char,$temp,$det,$cookie_exp,$cookies,$JavaScript,$HTMLHeaders,$fh);
  my $sref=$Tasks{$CurTaskID}->{webView}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -2288,14 +2368,15 @@ EOT
   } elsif (!$coll) {
    mlog(0,"nonexistent collection not allowed while viewing corpus file '$fil'");
    $res.='<div class="text"><span class="negative">Access denied</span></div>';
-  } elsif (!open(F,"<$base/${$coll}/$fil")) {
-   mlog(0,"failed to open corpus file for reading '${$coll}/$fil': $!");
+  } elsif (!open($fh,'<',"$base/${$coll}/$fil")) {
+   mlog(0,"failed to open corpus file for reading '$base/${$coll}/$fil': $!");
    $res='<div class="text"><span class="negative">'.ucfirst($!).'</span></div>';
   } else {
-   binmode F;
+   binmode $fh;
    local $/;
-   $s=<F>;
-   close F;
+   $s=<$fh>;
+   undef $/;
+   close $fh;
    $pat=encodeHTMLEntities($pat) unless $gpc->{hexview};
    # normalize and strip redundand minuses
    $pat=~s/(?<!(?:-|\w))(-(?:\s+|\z))+/-/g;
@@ -2337,7 +2418,7 @@ EOT
     ($index,$left,$right,$ret)=();
     $cols=16;
     while ($index<$len) {
-     return cede('L1',32); L1:
+     return cede('L1',1); L1:
      foreach $o (@offsets) {
       if ($index>=$o->[0] && $index<$o->[1]) {
        $left.=$o->[2];
@@ -2379,12 +2460,11 @@ EOT
     $s=~s/([^\015])\012/$1<span style="color:black; background-color:red">\\lf<\/span>\015\012/g;
    }
    $res="Contents of the $fil file ($coll_desc):";
-   return call('L2',corpusDetails("${$coll}/$fil")); L2:
-   $det=shift;
+   $det=corpusDetails("${$coll}/$fil");
    # if file has 'moved' bit set
    $res='<span class="neutral">'.$res.'</span>' if $det->[4] & 2;
    # turn on 'seen' bit in flags field
-   return call('L3',corpusSetFlags("${$coll}/$fil",($det->[4])|1)); L3:
+   corpusSetFlags("${$coll}/$fil",($det->[4])|1);
   }
   # cookie expiration date
   $cookie_exp=$t+2592000; # one month
@@ -2420,7 +2500,9 @@ $JavaScript
 EOT
   $HTMLHeaders.="  <div class=\"tooltip_pop\" id=\"tooltip_pop\" onMouseOver=\"selectElement(this)\" onClick=\"selectElement(this);\"></div>\n" if $ShowTooltipsIP || $ShowTooltipsHost || $ShowTooltipsEmail;
   chomp($HTMLHeaders);
-  addTooltips($s,$gpc->{nohighlight_c}) unless $gpc->{hexview};
+  unless ($gpc->{hexview}) {
+   return call('L4',addTooltips($s,$gpc->{nohighlight_c})); L4: $s=shift;
+  }
   return <<EOT;
 $HTTPHeaderOK
 $cookies
@@ -2493,7 +2575,7 @@ EOT
 
 sub webEdit {
  my ($http,$gpc);
- my ($note,$s1,$s2,$s3,$fil,$JavaScript,$HTMLHeaders);
+ my ($note,$s1,$s2,$s3,$fil,$JavaScript,$HTMLHeaders,$fh);
  my $sref=$Tasks{$CurTaskID}->{webEdit}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -2521,9 +2603,9 @@ sub webEdit {
      $s1=~s/\r?\n|\r/\n/g; # make line terminators uniform
      $s1=decodeHTMLEntities($s1);
      backupFile($fil);
-     if (open(F,">$fil")) {
-      print F $s1;
-      close F;
+     if (open($fh,'>',$fil)) {
+      print $fh $s1;
+      close $fh;
       $s2='<div class="text"><span class="positive">File saved successfully</span></div>';
       optionFilesReload() if $gpc->{func} eq '1';
       configReload() if $gpc->{func} eq '3';
@@ -2533,12 +2615,13 @@ sub webEdit {
      }
     }
    }
-   if (open(F,"<$fil")) {
+   if (open($fh,'<',$fil)) {
     local $/;
-    $s1=<F>;
+    $s1=<$fh>;
+    undef $/;
+    close $fh;
     $s1=~s/\r?\n|\r/\n/g; # make line terminators uniform
     $s1=encodeHTMLEntities($s1);
-    close F;
    } elsif ($gpc->{B1}!~/delete/i) {
     mlog(0,"failed to open file for reading '$fil': $!");
     $s2='<div class="text"><span class="negative">'.ucfirst($!).'</span></div>';
@@ -2762,7 +2845,7 @@ EOT
 
 sub webGetFile {
  my ($http,$gpc);
- my ($fil,$mtime,$s,$ct,$k,$v);
+ my ($fil,$mtime,$s,$ct,$k,$v,$fh);
  my $sref=$Tasks{$CurTaskID}->{webGetFile}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -2799,11 +2882,12 @@ EOT
      }
     }
    }
-   if (open(F,"<$fil")) {
-    binmode F;
+   if (open($fh,'<',$fil)) {
+    binmode $fh;
     local $/;
-    $s=<F>;
-    close F;
+    $s=<$fh>;
+    undef $/;
+    close $fh;
     %mimeTypes=('log|txt|pl' => 'text/plain',
                 'htm|html' => 'text/html',
                 'css' => 'text/css',
@@ -2818,10 +2902,7 @@ EOT
                 'js' => 'application/x-javascript');
     $ct='text/plain'; # default content-type
     while (($k,$v)=each(%mimeTypes)) {
-     if ($fil=~/\.(\Q$k\E)$/i) {
-      $ct=$v;
-      last;
-     }
+     $ct=$v if $fil=~/\.(\Q$k\E)$/i;
     }
     $mtime=[stat($fil)]->[9];
     $mtime=gmtime($mtime);
@@ -2853,7 +2934,7 @@ EOT
 
 sub webTooltip {
  my ($http,$gpc);
- my ($param,$data,$s,@s,$res,$packet,@answer,$a);
+ my ($param,$data,$s,@s,$res,$sock,$packet,@answer,$a);
  my $sref=$Tasks{$CurTaskID}->{webTooltip}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -2871,9 +2952,12 @@ sub webTooltip {
   } elsif ($param==2 || $param==3) {
    # handle IP addresses & host names
    if ($CanUseDNS) {
-    $res=Net::DNS::Resolver->new(retrans=>1, retry=>1);
-    # instant lookup, $res->bgsend() is much slower
-    if ($packet=$res->search($data)) {
+    $res=Net::DNS::Resolver->new();
+    $sock=$res->bgsend($data);
+    waitTaskRead(0,$sock,10);
+    return cede('L1'); L1:
+    if (getTaskWaitResult(0)) {
+     $packet=$res->bgread($sock);
      @answer=$packet->answer;
      foreach $a (@answer) {
       $s.='<br>' if $s;
@@ -2985,7 +3069,7 @@ EOT
 
 sub webShutdownFrame {
  my ($http,$gpc);
- my ($action,$s1,$s2,$query,$refresh,$shutdownDelay,$timerJS,$sessCnt,$fh,$m,$indent,$client,$from,$to);
+ my ($action,$s1,$s2,$query,$refresh,$shutdownDelay,$timerJS,$sessCnt,$ch,$m,$indent,$client,$from,$to);
  my $sref=$Tasks{$CurTaskID}->{webShutdownFrame}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -3038,14 +3122,14 @@ sub webShutdownFrame {
    $refresh=2;
    $s1=$sessCnt>0 ? ($sessCnt>1 ? 'There are ' : 'There is '). needEs($sessCnt,' SMTP session','s') .' active.' : 'There are no active SMTP sessions.';
    $s1.='<pre>';
-   foreach $fh (keys %SMTPSessions) {
-    $m=localtime(int($SMTPSessions{$fh}->{stime}));
+   foreach $ch (keys %SMTPSessions) {
+    $m=localtime(int($SMTPSessions{$ch}->{stime}));
     $m=~s/^... (...) +(\d+) (\S+) ..(..)/$1-$2-$4 $3 /;
     $indent=' ' x length($m); # calculate indent
     ($client,$from)=();
-    $client="$SMTPSessions{$fh}->{client} ($Con{$fh}->{helo}) " if $Con{$fh}->{inenvelope};
-    $from="<$Con{$fh}->{mailfrom}> " if $Con{$fh}->{inmailfrom};
-    ($to)=$Con{$fh}->{rcpt}=~/(\S+)/;
+    $client="$SMTPSessions{$ch}->{client} ($Con{$ch}->{helo}) " if $Con{$ch}->{inenvelope};
+    $from="<$Con{$ch}->{mailfrom}> " if $Con{$ch}->{inmailfrom};
+    ($to)=$Con{$ch}->{rcpt}=~/(\S+)/;
     $to="to: $to " if $to;
     $m.="$client$from$to";
     $m.="\n";
@@ -3059,7 +3143,7 @@ sub webShutdownFrame {
    $doShutdown=0;
    $query='?nocache';
   }
-  addTooltips($s1);
+  return call('L1',addTooltips($s1)); L1: $s1=shift;
   return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -3935,7 +4019,7 @@ EOT
       </tbody>
       <tbody id="StatItem9" class="$gpc->{StatItem9}">
 EOT
-  foreach $i ('RWL',@rwllist,'SPF','RBL',@rbllist,'URIBL',@uribllist) {
+  foreach $i ('RWL',@rwllist,'SPF','RBL',@rbllist,'URIBL',@uribllist,'AV') {
    if ($i=~/\./) {
     # provider
     $name=('&nbsp;'x4).$i;

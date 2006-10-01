@@ -44,7 +44,7 @@ configLoad();
 if ($Config{logfile}) {
  my ($dir)=$Config{logfile}=~/(.*[\\\/])/;
  makeDirs($base,$dir);
- if (open(LOG,">>$base/$Config{logfile}")) {
+ if (open(LOG,'>>',"$base/$Config{logfile}")) {
   my $oldfh=select(LOG); $|=1; select($oldfh);
  }
  $logfile=$Config{logfile}; # mlog needs $logfile
@@ -496,7 +496,7 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
   $Config{logfile}=~s/.*[\\\/]|/logs\//;
   # reopen logfile
   if ($Config{logfile}) {
-   if (open(LOG,">>$base/$Config{logfile}")) {
+   if (open(LOG,'>>',"$base/$Config{logfile}")) {
     my $oldfh=select(LOG); $|=1; select($oldfh);
    }
    $logfile=$Config{logfile}; # mlog needs $logfile
@@ -544,8 +544,8 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
    my $ltime=time;
    foreach my $f (@files) {
     next if -d $f;
-    if (open(F,"<$base/$Config{$c}/$f")) {
-     binmode(F);
+    if (open(F,'<',"$base/$Config{$c}/$f")) {
+     binmode F;
      my ($h,$b);
      undef $/;
      $h=<F>;
@@ -559,8 +559,8 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
      $h=~s/\015?\012|\015/\015\012/g if $all>2*$good;
      $h.="\015\012" if $h;
      $b=~s/\015?\012|\015/\015\012/g;
-     if (open(F,">$base/$Config{$c}/$f.tmp")) {
-      binmode(F);
+     if (open(F,'>',"$base/$Config{$c}/$f.tmp")) {
+      binmode F;
       print F "$h\015\012$b";
       close F;
       unlink("$base/$Config{$c}/$f");
@@ -610,7 +610,7 @@ $BackupCopies=3; # needed in ConfigSave
 configSave();
 
 sub mlog{
- my ($fh,$message)=@_;
+ my ($ch,$message)=@_;
  my $m=localtime();
  $m=~s/^... (...) +(\d+) (\S+) ..(..)/$1-$2-$4 $3 /;
  my $indent=' ' x length($m); # calculate indent
