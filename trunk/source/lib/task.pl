@@ -368,7 +368,7 @@ sub wrap {
     $statTime+=Time::HiRes::time();
     $_[1]+=$statTime;
     $_[0]-=$statTime;
-    if ($statTime>0.1) {
+    if ($statTime>0.5) {
      if ($sub==$main::Tasks{$main::CurTaskID}->{handler}) {
       main::mlog(0,'excessive time: '.(main::formatTimeInterval($statTime,1)).' in '.($main::Tasks{$main::CurTaskID}->{name}).'()'.($label ? " at $label":''));
      } else {
