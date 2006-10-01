@@ -2146,6 +2146,7 @@ EOT
    closedir(DIR);
    (@items)=();
    for ($n=0;$n<@dir;$n++) {
+    return cede('L7',1); L7:
     $fil3=$dir[$n];
     push(@items,[$fil3,corpus("${$coll}/$fil3")->[0]]);
    }
@@ -2153,6 +2154,7 @@ EOT
           grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
           @items;
    for ($n=0;$n<@items;$n++) {
+    return cede('L8',1); L8:
     $i=$items[$n];
     if ($res2=webCorpusItem($coll,$i->[0],corpusDetails("${$coll}/$i->[0]"),$gpc,\@good,\@bad)) {
      $s.=$res2;
