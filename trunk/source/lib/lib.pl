@@ -92,7 +92,7 @@ sub clean {
  # received's may interfere with rcpt parsing, clear them out now
  $m=~s/^Received$HeaderSepValueCRLFRe//gimo;
  # parse rcpt's
- my $rcpt='rcpt '.join(' rcpt ',$m=~/($EmailAdrRe\@$EmailDomainRe)/g);
+ my $rcpt='rcpt '.join(' rcpt ',$m=~/($EmailAdrRe\@$EmailDomainRe)/go);
  # mark the subject
  my ($ssub)=$m=~/^$HeaderAllCRLFRe*Subject$HeaderSepRe($HeaderValueRe)/io;
  $ssub=decodeMimeWords($ssub);
@@ -621,9 +621,9 @@ sub flush {
  return unless %{$this->{updated}};
  my $f=$this->{fn};
  open(O,">$f.tmp") or return undef;
- binmode(O);
+ binmode O;
  open(I,"<$f") || print O "\n";
- binmode(I);
+ binmode I;
  local $/="\n";
  my @l=(sort keys %{$this->{updated}});
  my ($k,$d,$r,$v);
@@ -647,7 +647,10 @@ sub flush {
   print O "$l[0]\002$v\n" if $v;
   shift(@l);
  }
- close I; close O; unlink($f); rename("$f.tmp", $f);
+ close I;
+ close O;
+ unlink($f);
+ rename("$f.tmp", $f);
  $this->{updated}={};
 }
 
@@ -674,7 +677,7 @@ sub resetCache {
 sub binsearch {
  my ($f,$k)=@_;
  open(F,"<$f") or return undef;
- binmode(F);
+ binmode F;
  my $count=0;
  my $siz=my $h=-s $f;
  $siz-=1024;
@@ -724,7 +727,7 @@ sub NEXTKEY {
  my ($this, $lastkey)=@_;
  local $/="\n";
  open(F,"<$this->{fn}") or return undef;
- binmode(F);
+ binmode F;
  seek(F,$this->{ptr},0);
  my $r=<F>;
  unless ($r) {
@@ -754,7 +757,10 @@ sub DELETE {
 
 sub CLEAR {
  my ($this)=@_;
- open(F,">$this->{fn}"); binmode(F); print F "\n"; close F;
+ open(F,'>',"$this->{fn}");
+ binmode F;
+ print F "\n";
+ close F;
  $this->{cache}={};
  $this->{updated}={};
  $this->{cnt}=0;
