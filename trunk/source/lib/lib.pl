@@ -187,6 +187,14 @@ sub sgn {
  return ($_[0]>0)-($_[0]<0);
 }
 
+sub min {
+ return $_[0]<=$_[1] ? $_[0] : $_[1];
+}
+
+sub max {
+ return $_[0]>=$_[1] ? $_[0] : $_[1];
+}
+
 sub makeDirs {
  my ($b,$ds)=@_;
  foreach my $d (split(/[\\\/]/,$ds)) {
@@ -620,9 +628,9 @@ sub flush {
  my $this=shift;
  return unless %{$this->{updated}};
  my $f=$this->{fn};
- open(O,">$f.tmp") or return undef;
+ open(O,'>',"$f.tmp") or return undef;
  binmode O;
- open(I,"<$f") || print O "\n";
+ open(I,'<',$f) || print O "\n";
  binmode I;
  local $/="\n";
  my @l=(sort keys %{$this->{updated}});
@@ -676,7 +684,7 @@ sub resetCache {
 
 sub binsearch {
  my ($f,$k)=@_;
- open(F,"<$f") or return undef;
+ open(F,'<',$f) or return undef;
  binmode F;
  my $count=0;
  my $siz=my $h=-s $f;
@@ -726,7 +734,7 @@ sub FIRSTKEY {
 sub NEXTKEY {
  my ($this, $lastkey)=@_;
  local $/="\n";
- open(F,"<$this->{fn}") or return undef;
+ open(F,'<',$this->{fn}) or return undef;
  binmode F;
  seek(F,$this->{ptr},0);
  my $r=<F>;
@@ -757,7 +765,7 @@ sub DELETE {
 
 sub CLEAR {
  my ($this)=@_;
- open(F,'>',"$this->{fn}");
+ open(F,'>',$this->{fn});
  binmode F;
  print F "\n";
  close F;

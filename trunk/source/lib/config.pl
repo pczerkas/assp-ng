@@ -55,24 +55,24 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
            'denySMTPConnections' => 'DSMTPCRE',
            'noRateLimit' => 'NRLRE');
 
-$AttachmentBlockLevels={'0'=>'Disabled',
-                        '1'=>'Level 1',
-                        '2'=>'Level 2',
-                        '3'=>'Level 3'};
+$AttachmentBlockLevels={'0' => 'Disabled',
+                        '1' => 'Level 1',
+                        '2' => 'Level 2',
+                        '3' => 'Level 3'};
 
-$HamCollectionOptions={'1'=>'notspam folder & CC',
-                       '2'=>'notspam folder',
-                       '3'=>'mailok folder & CC',
-                       '4'=>'mailok folder',
-                       '5'=>'discard & CC',
-                       '6'=>'discard'};
+$HamCollectionOptions={'1' => 'notspam folder & CC',
+                       '2' => 'notspam folder',
+                       '3' => 'mailok folder & CC',
+                       '4' => 'mailok folder',
+                       '5' => 'discard & CC',
+                       '6' => 'discard'};
 
-$SpamCollectionOptions={'7'=>'spam folder & CC',
-                        '8'=>'spam folder',
-                        '9'=>'discard & CC',
-                        '10'=>'discard',
-                        '11'=>'virii folder & CC',
-                        '12'=>'virii folder'};
+$SpamCollectionOptions={'7' => 'spam folder & CC',
+                        '8' => 'spam folder',
+                        '9' => 'discard & CC',
+                        '10' => 'discard',
+                        '11' => 'virii folder & CC',
+                        '12' => 'virii folder'};
 
 @Config=(
 [0,0,0,\&heading,'Network Setup'],
@@ -900,7 +900,7 @@ $SpamCollectionOptions={'7'=>'spam folder & CC',
   'Where to store no processing emails.<br /><br />
    Note: Messages may undergo multiple spam tests. At any stage of processing, the test will be performed only if its assigned<br />
    collection value or severity (testmode, spamlover vs blocking) is greater than the value aquired so far by the message.',$HamCollectionOptions],
- ['localColl','Local or Whitelisted Ham',1,\&option,2,'([1-6])',undef,
+ ['localColl','Local Ham',1,\&option,2,'([1-6])',undef,
   'Where to store local emails.',$HamCollectionOptions],
  ['whiteColl','Whitelisted Ham',1,\&option,2,'([1-6])',undef,
   'Where to store whitelisted emails.',$HamCollectionOptions],

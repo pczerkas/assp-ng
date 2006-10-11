@@ -266,6 +266,10 @@ sub doTask {
   }
  }
  @Tasks=(@high,@norm,@idle,@wait,@suspend);
+
+##
+##print "@high | @norm | @idle | @wait | @suspend\n" if scalar @norm>3;
+
  $KernelStats{max_queue}=scalar @Tasks if @Tasks>$KernelStats{max_queue};
  $KernelStats{max_high_queue}=scalar @high if @high>$KernelStats{max_high_queue};
  $KernelStats{max_norm_queue}=scalar @norm if @norm>$KernelStats{max_norm_queue};
@@ -311,9 +315,20 @@ sub jump {
 
 sub cede {
  if ($_[1]) {
+  # loop-mode, auto-skip some cedes
+  $Tasks{$CurTaskID}->{skip_cede}||=1;
+  goto $_[0] if ++$Tasks{$CurTaskID}->{cedes} % $Tasks{$CurTaskID}->{skip_cede};
   my $time=$AvailHiRes ? Time::HiRes::time() : time;
-  goto $_[0] if $time-$Tasks{$CurTaskID}->{last_cede}<0.1;
+  my $interval=$time-$Tasks{$CurTaskID}->{last_cede};
+  my $resolution=$AvailHiRes ? 0.1 : 1;
+  if ($interval>=2*$resolution) {
+   $Tasks{$CurTaskID}->{skip_cede}>>=1;
+  } elsif ($interval<$resolution) {
+   $Tasks{$CurTaskID}->{skip_cede}<<=1;
+  }
   $Tasks{$CurTaskID}->{last_cede}=$time;
+ } else {
+  $Tasks{$CurTaskID}->{last_cede}=$Tasks{$CurTaskID}->{skip_cede}=$Tasks{$CurTaskID}->{cedes}=0;
  }
  return Coroutine::yield($_[0],[1]);
 }
