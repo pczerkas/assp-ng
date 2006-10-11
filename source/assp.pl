@@ -58,6 +58,25 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
             'Spam',
             'Spam-Reason');
 
+# 1 = notspam folder & CC, 2 = notspam folder,
+# 3 = mailok folder & CC, 4 = mailok folder,
+# 5 = discard & CC, 6 = discard,
+# 7 = spam folder & CC, 8 = spam folder,
+# 9 = discard & CC, 10 = discard,
+# 11 = virii folder & CC, 12 = virii folder
+%Collections=(1 => ['notspamlog',1],
+              2 => ['notspamlog',0],
+              3 => ['incomingOkMail',1],
+              4 => ['incomingOkMail',0],
+              5 => ['',1],
+              6 => ['',0],
+              7 => ['spamlog',1],
+              8 => ['spamlog',0],
+              9 => ['',1],
+              10 => ['',0],
+              11 => ['viruslog',1],
+              12 => ['viruslog',0]);
+
 # load from command line if specified
 if ($ARGV[0]) {
  $base=$ARGV[0];
@@ -143,7 +162,6 @@ if ($ARGV[1]=~/^\d+$/) {
 
 use IO::Socket;
 use Time::Local;
-use IO::File;
 
 main();
 # Never reached...(we hope)
@@ -608,11 +626,6 @@ sub taskStats {
  }];
 }
 
-# called during long operations to keep processing priority data
-sub PeekLoop {
- return;
-}
-
 #####################################################################################
 #                SMTP Socket handlers
 
@@ -790,14 +803,14 @@ sub NewSimSMTPConnection {
 # with the $buf parameter, not sysread'ed from the socket
 sub taskSMTPInTraffic {
  my ($ch,$buf)=@_;
- my ($this,$friend,$timeout,$err,$len,$bn,$lbn,$l,$sb);
+ my ($this,$friend,$timeout,$err,$len,$bn,$lbn,$str);
  return ['taskSMTPInTraffic',sub{&jump;
   # note: $Con{$ch} may be deleted in $Con{$ch}->{getline}->() !!!
   $this=$Con{$ch};
   $friend=$this->{friend};
   while ($ch->opened()) {
    waitTaskRead(0,$ch,$SMTPTimeout || 10);
-   return cede('L_1'); L_1:
+   return cede('L1'); L1:
    unless (getTaskWaitResult(0)) {
     next unless $SMTPTimeout && $this->{active};
     # connection timed out
@@ -810,29 +823,24 @@ sub taskSMTPInTraffic {
     last;
    }
    $this->{_}.=$buf;
-   if (($sb=$this->{skipbytes})>0) {
-    # support for XEXCH50 thankyou Microsoft for making my life miserable
-    $len=length($this->{_});
-    if ($len>=$sb) {
-     addTrafStats($ch,$sb,0);
-     # send the binary chunk on to the server
-     sendque($friend,substr($this->{_},0,$sb,'')); # four-argument substr()
-     delete $this->{skipbytes};
-    } else {
-     addTrafStats($ch,$len,0);
-     # send the binary chunk on to the server
-     sendque($friend,$this->{_});
-     $this->{skipbytes}=$sb-=$len;
-     $this->{_}='';
-    }
+   # support for XEXCH50 thankyou Microsoft for making my life miserable
+   while ($this->{skipbytes}>0) {
+    $str=substr($this->{_},0,min($this->{skipbytes},$IncomingBufSize),''); # four-argument substr()
+    $len=length($str);
+    last unless $len;
+    addTrafStats($ch,$len,0);
+    $this->{skipbytes}-=$len;
+    # send the binary chunk on to the server
+    sendque($friend,$str);
+    return cede('L2',1); L2:
    }
    while (($bn=index($this->{_},"\015\012"))>=0) {
     $bn+=2; # crlf length
-    $l=substr($this->{_},0,$bn,''); # four-argument substr()
-    $len=length($l);
+    $str=substr($this->{_},0,$bn,''); # four-argument substr()
+    $len=length($str);
     addTrafStats($ch,$len,0);
     $this->{bdata}-=$len if defined($this->{bdata});
-    return call('L3',$this->{getline}->($ch,$l)); L3:
+    return call('L3',$this->{getline}->($ch,$str)); L3:
     # it's possible that the connection can be deleted 
     # while there's still something in the buffer
     last unless $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
@@ -1223,6 +1231,7 @@ sub doneSession {
 sub doneConnection {
  my ($ch,$by)=@_;
  return unless $ch; # may have been closed
+ return unless ref($ch) eq 'IO::Socket::INET';
  my $this=$Con{$ch};
  my $addr=($this->{ip}).':'.($this->{port});
  if ($this->{simulating}) {
@@ -1307,7 +1316,8 @@ sub sendque {
 sub sayque {
  my ($ch,$message)=@_;
  $message=~s/\015?\012|\015//g;
- sendque($ch,"$message\015\012",1,1);
+ $message.="\015\012";
+ sendque($ch,$message,1,1);
 }
 
 #####################################################################################
@@ -1361,7 +1371,6 @@ sub getLine {
   if ($l=~/^ *(?:helo|ehlo) .*?([^<>,;"'\(\)\s]+)/i) {
    $this->{helo}=$1;
    $this->{rcvd}=~s/=\)/=$this->{helo}\)/;
-   headerWrap($this->{rcvd}); # wrap long lines
    # early (pre-mailfrom) checks
    if (needCheckHelo($ch,1)) {
     return call('L1',needExtraCheck($ch,$HeloExtra)); L1:
@@ -1727,7 +1736,7 @@ sub npHeader {
   $this->{maillength}+=length($l);  
   checkLine($ch,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
-  if ($done || $this->{maillength}>=$MaxBytes) {
+  if ($done) {
    splitFix($ch);
    return call('L2',npHeaderExec($ch,$l)); L2:
   }
@@ -1749,7 +1758,7 @@ sub getHeader {
   $this->{maillength}+=length($l);
   checkLine($ch,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
-  if ($done || $this->{maillength}>=$MaxBytes) {
+  if ($done) {
    splitFix($ch);
    if ($npRe) {
     if ($this->{header}=~$npReRE) {
@@ -2287,7 +2296,7 @@ sub prepareTmpBody {
  my $this=$Con{$ch};
  my $sh=$this->{sh};
  $SMTPSessions{$sh}->{tmpfn}="tmp/$SMTPSessions{$sh}->{id}_$SMTPSessions{$sh}->{msgcnt}";
- $SMTPSessions{$sh}->{tmpfh}=IO::File->new(">$base/$SMTPSessions{$sh}->{tmpfn}");
+ open($SMTPSessions{$sh}->{tmpfh},'>',"$base/$SMTPSessions{$sh}->{tmpfn}");
  binmode $SMTPSessions{$sh}->{tmpfh};
 }
 
@@ -2316,7 +2325,7 @@ sub doneTmpBody {
 
 sub pass {
  my ($ch,$done);
- my ($this,$server,$sf,$skip,$rcvdh,$header,$sub,$e,$tt,$tt2,$srs,$h);
+ my ($this,$server,$sf,$skip,$rcvdh,$header,$pos,$str,$len,$sub,$e,$tt,$tt2,$srs,$h);
  my $sref=$Tasks{$CurTaskID}->{pass}||=[sub{
   ($ch,$done)=@_;
  },sub{&jump;
@@ -2334,6 +2343,7 @@ sub pass {
    # clear out received ASSP headers
    $this->{header}=~s/^X-Assp-$HeaderAllCRLFRe//gimo;
   }
+  headerWrap($this->{rcvd}); # wrap long lines
   # always add our Received: header
   # preserve original header
   $header=$this->{header}=$this->{rcvd}.$this->{header};
@@ -2387,15 +2397,32 @@ sub pass {
     $header.=$1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
    }
   }
-  sendque($server,"$header\015\012");
+  $header.="\015\012";
+  $pos=0;
+  while (1) {
+   $str=substr($header,$pos,$IncomingBufSize);
+   $len=length($str);
+   last unless $len;
+   $pos+=$len;
+   sendque($server,$str);
+   return cede('L1',1); L1:
+  }
   prepareTmpBody($ch);
   # send/store body
   if ($done) {
-   return call('L1',finalizeMail($ch,$this->{body})); L1:
+   return call('L2',finalizeMail($ch,$this->{body})); L2:
    return if (shift)<0;
   } else {
    $this->{getline}=\&continueBody;
-   sendque($server,$this->{body});
+   $pos=0;
+   while (1) {
+    $str=substr($this->{body},$pos,$IncomingBufSize);
+    $len=length($str);
+    last unless $len;
+    $pos+=$len;
+    sendque($server,$str);
+    return cede('L3',1); L3:
+   }
    addTmpBody($ch,$this->{body});
   }
  }];
@@ -2514,30 +2541,30 @@ sub finalizeMail {
 
 sub doneMail {
  my $ch;
- my ($this,$sf);
+ my ($this,$sf,$coll);
  my $sref=$Tasks{$CurTaskID}->{doneMail}||=[sub{
   $ch=shift;
  },sub{&jump;
   $this=$Con{$ch};
-  return if $this->{isRelay};
+  return if $this->{isRelay} || $this->{simulating};
   $sf=$this->{spamfound};
-  $logCount[$this->{coll}]++;
-  if ($logCount[$this->{coll}]>=$logFreq[$this->{coll}]) {
-   $logCount[$this->{coll}]=0;
-   unless ($this->{simulating}) {
-    # fix {myheader} if spam was found after MaxBytes has been reached
-    unless ($this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok}) {
-     # clear out some existing headers
-     $this->{myheader}=~s/^X-Assp-Spam$HeaderSepValueCRLFRe//gimo;
-     $this->{myheader}=~s/^X-Assp-Spam-Prob$HeaderSepValueCRLFRe//gimo;
-     # add corrected headers
-     $this->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
-     $this->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$this->{spamprob}) if $AddSpamProbHeader;
-    }
-    return call('L1',collectMail($ch)); L1:
-    newTask(taskForwardMail($ch),'NORM','S');
-   }
+  $coll=$this->{coll};
+  $logCount[$coll]++;
+  return if $logCount[$coll]<$logFreq[$coll];
+  $logCount[$coll]=0;
+  # fix {myheader} if spam was found after MaxBytes has been reached
+  unless ($this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok}) {
+   # clear out some existing headers
+   $this->{myheader}=~s/^X-Assp-Spam$HeaderSepValueCRLFRe//gimo;
+   $this->{myheader}=~s/^X-Assp-Spam-Prob$HeaderSepValueCRLFRe//gimo;
+   # add corrected headers
+   $this->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
+   $this->{myheader}.=sprintf("X-Assp-Spam-Prob: %.5f\015\012",$this->{spamprob}) if $AddSpamProbHeader;
+   # wrap long header lines
+   headerWrap($this->{myheader});
   }
+  return call('L1',collectMail($ch)) if $Collections{$coll}->[0]; L1:
+  newTask(taskForwardMail($ch),'NORM','S') if $Collections{$coll}->[1];
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -3825,12 +3852,12 @@ sub doneClamAV {
  my $sh=$this->{sh};
  if (($param & 1) && $SMTPSessions{$sh}->{clamdch}) {
   mlogCond($ch,'closing command connection to ClamAV',$AvLog);
-  close $SMTPSessions{$sh}->{clamdch};
+  $SMTPSessions{$sh}->{clamdch}->close();
   delete $SMTPSessions{$sh}->{clamdch};
  }
  if (($param & 2) && $SMTPSessions{$sh}->{clamdsth}) {
   mlogCond($ch,'closing stream connection to ClamAV',$AvLog);
-  close $SMTPSessions{$sh}->{clamdsth};
+  $SMTPSessions{$sh}->{clamdsth}->close();
   delete $SMTPSessions{$sh}->{clamdsth};
  }
 }
@@ -4288,23 +4315,19 @@ sub getNewCollFileName {
 
 sub collectMail {
  my $ch;
- my ($this,@dirs,$maillog,$fn,$fh,$h,$det,$sf,$flags);
+ my ($this,$maillog,$fn,$fh,$h,$det,$sf,$flags);
  my $sref=$Tasks{$CurTaskID}->{collectMail}||=[sub{
   $ch=shift;
  },sub{&jump;
   $this=$Con{$ch};
-  # 1 = notspam folder, 2 = notspam folder & CC, 3 = mailok folder, 4 = mailok folder & CC, 5 = discard, 6 = discard & CC
-  # 7 = spam folder, 8 = spam folder & CC, 9 = discard, 10 = discard & CC, 11 = virii folder, 12 = virii folder & CC
-  @dirs=('',$notspamlog,$notspamlog,$incomingOkMail,$incomingOkMail,'','',$spamlog,$spamlog,'','',$viruslog,$viruslog);
-  $maillog=$dirs[$this->{coll}];
-  return unless $maillog;
+  $maillog=${$Collections{$this->{coll}}->[0]};
   $fn=getNewCollFileName($maillog);
   $fn="$maillog/$fn$maillogExt";
   if (open($fh,'>',"$base/$fn")) {
    binmode $fh;
    print $fh $this->{header};
-   # wrap long header lines
-   headerWrap($this->{myheader});
+   # add X-Intended-For: header
+   print $fh "X-Intended-For: $this->{rcpt}\015\012";
    # sort & merge our header
    foreach $h (@MyHeaders) {
     print $fh $1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
@@ -4332,23 +4355,32 @@ sub collectMail {
 sub taskForwardMail {
  my $ch=shift;
  my $this=$Con{$ch};
- my $coll=$this->{coll};
+ my $sh=$this->{sh};
+ # take over tmp file
+ my $tmpfn=$SMTPSessions{$sh}->{tmpfn};
+ delete $SMTPSessions{$sh}->{tmpfn};
  my $sf=$this->{spamfound};
  my $mailfrom=$this->{mailfrom};
  my $rcpt=$this->{rcpt};
  my $header=$this->{header};
+ my $myheader=$this->{myheader};
  my $tag=$Con{$ch}->{tag};
- my ($to,$c,$s,$a,$sub);
+ my ($to,$c,$s,$a,$tmpfh,$sub,$h);
  return ['taskForwardMail',sub{&jump;
-  return unless $coll==1 || $coll==3 || $coll==5 || $coll==7 || $coll==9 || $coll==11;
   $to=($sf & 4) ? $ccBlocked : $sf ? $ccSpam : $ccHam;
-  return unless $to;
+  unless ($to) {
+   unlink("$base/$tmpfn");
+   return;
+  }
   if ($ccFilter && !matchSL($mailfrom,'ccFilter')) {
    ($c)=();
    foreach $a (split(' ',$rcpt)) {
     $c++ if matchSL($a,'ccFilter');
    }
-   return unless $c;
+   unless ($c) {
+    unlink("$base/$tmpfn");
+    return;
+   }
   }
   return call('L1',newConnect($smtpDestination,2)); L1:
   unless ($s=shift) {
@@ -4357,18 +4389,30 @@ sub taskForwardMail {
    } else {
     mlog(0,"couldn't create server socket to $smtpDestination -- aborting CC connection");
    }
+   unlink("$base/$tmpfn");
    return;
   }
-  addfh($s,\&FShelo);
+  unless (open($tmpfh,'<',"$base/$tmpfn")) {
+   mlog(0,"failed to open tmp file for reading '$base/$tmpfn': $!");
+   return;
+  }
+  binmode $tmpfh;
+  $Con{$tmpfh}={};
+  $this=$Con{$tmpfh};
+  $this->{friend}=$s;
+  $this->{itid}=$this->{otid}=$CurTaskID;
+  $this->{isServer}=1; ## fixme ?
+  addfh($s,\&FShelo,$tmpfh);
   $this=$Con{$s};
   $this->{isServer}=1;
   # add SMTP session
   addSession($s);
   # set session handle (sh)
-  $this->{sh}=$s;
+  $this->{sh}=$Con{$tmpfh}->{sh}=$s;
   slog($s,"(connected $smtpDestination)",1,'I');
-  $this->{from}=$mailfrom;
-  $this->{to}=$to;
+  $this->{helo}=$myName;
+  $this->{mailfrom}=$mailfrom;
+  $this->{rcpt}=$to;
   $this->{header}=$header;
   # clear out notification headers (MDN's)
   $this->{header}=~s/^Disposition-Notification-$HeaderAllCRLFRe//gimo; # -To & -Options
@@ -4383,16 +4427,19 @@ sub taskForwardMail {
   }
   # add X-Intended-For: header
   $this->{header}.="X-Intended-For: $rcpt\015\012";
-
- ## $this->{body}=$Con{$ch}->{body};
- ## # chop off final 'crlf dot crlf' sequence
- ## # it may have been damaged by MaxBytes boundary
- ## $this->{body}=~s/\015\012\.(?:\015\012)?$//;
+  # sort & merge our header
+  foreach $h (@MyHeaders) {
+   $this->{header}.=$1 if $myheader=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
+  }
+  $SMTPSessions{$s}->{tmpfn}=$tmpfn;
+  $SMTPSessions{$s}->{tmpfh}=$tmpfh;
+  $this->{inenvelope}=1;
  }];
 }
 
 sub FShelo {
  my ($ch,$l);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{FShelo}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -4400,8 +4447,9 @@ sub FShelo {
   if ($l=~/^ *5/) {
    FSabort($ch,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
-   $Con{$ch}->{getline}=\&FSfrom;
-   sayque($ch,"HELO $myName");
+   $this=$Con{$ch};
+   $this->{getline}=\&FSfrom;
+   sayque($ch,"HELO $this->{helo}");
   }
  }];
  &{$sref->[0]};
@@ -4410,6 +4458,7 @@ sub FShelo {
 
 sub FSfrom {
  my ($ch,$l);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{FSfrom}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -4417,8 +4466,10 @@ sub FSfrom {
   if ($l=~/^ *5/) {
    FSabort($ch,"from Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
-   $Con{$ch}->{getline}=\&FSrcpt;
-   sayque($ch,"MAIL FROM:<$Con{$ch}->{from}>");
+   $this=$Con{$ch};
+   $this->{getline}=\&FSrcpt;
+   sayque($ch,"MAIL FROM:<$this->{mailfrom}>");
+   $this->{inmailfrom}=1;
   }
  }];
  &{$sref->[0]};
@@ -4435,7 +4486,7 @@ sub FSrcpt {
    FSabort($ch,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $Con{$ch}->{getline}=\&FSdata;
-   sayque($ch,"RCPT TO:<$Con{$ch}->{to}>");
+   sayque($ch,"RCPT TO:<$Con{$ch}->{rcpt}>");
   }
  }];
  &{$sref->[0]};
@@ -4461,7 +4512,7 @@ sub FSdata {
 
 sub FSdata2 {
  my ($ch,$l);
- my ($this,$s);
+ my ($this,$h,$pos,$str,$len,$tmpfh);
  my $sref=$Tasks{$CurTaskID}->{FSdata2}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -4470,12 +4521,29 @@ sub FSdata2 {
    FSabort($ch,"data2 Expected 354, got: $l");
   } elsif ($l=~/^ *354 /) {
    $this=$Con{$ch};
+   $this->{indata}=1;
    $this->{getline}=\&FSdone;
-   # 'crlf dot crlf' sequence was chopped off ealier
-   $s="$this->{header}\015\012".
-      "$this->{body}\015\012.\015\012";
-   sendque($ch,$s);
-   slog($ch,'('.needEs(length($s),' byte','s').' sent)',1,'I');
+   $this->{header}.="\015\012";
+   # send header
+   $pos=0;
+   while (1) {
+    $str=substr($this->{header},$pos,$IncomingBufSize);
+    $len=length($str);
+    last unless $len;
+    $pos+=$len;
+    sendque($ch,$str);
+    return cede('L1',1); L1:
+   }
+   # send body
+   $tmpfh=$SMTPSessions{$ch}->{tmpfh};
+   while (1) {
+    $len=read($tmpfh,$str,$IncomingBufSize);
+    last unless $len;
+    $pos+=$len;
+    sendque($ch,$str);
+    return cede('L2',1); L2:
+   }
+   slog($ch,'('.needEs($pos,' byte','s').' sent)',1,'I');
   }
  }];
  &{$sref->[0]};
@@ -4485,7 +4553,7 @@ sub FSdata2 {
 sub FSdone {
  my ($ch,$l);
  my $this;
- my $sref=$Tasks{$CurTaskID}->{RMdone}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FSdone}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l,0);
@@ -4763,9 +4831,10 @@ sub listReportExec {
 
 sub taskReturnMail {
  my ($ch,$sub,$body)=@_;
- my $type=$Con{$ch}->{reporttype};
- my $to=$Con{$ch}->{mailfrom};
- my ($this,$file,$sub2,$date,$tz);
+ my $this=$Con{$ch};
+ my $type=$this->{reporttype};
+ my $to=$this->{mailfrom};
+ my ($s,$file,$sub2,$date,$tz);
  return ['taskReturnMail',sub{&jump;
   return call('L1',newConnect($smtpDestination,2)); L1:
   unless ($s=shift) {
@@ -4784,8 +4853,9 @@ sub taskReturnMail {
   # set session handle (sh)
   $this->{sh}=$s;
   slog($s,"(connected $smtpDestination)",1,'I');
-  $this->{from}=$EmailFrom;
-  $this->{to}=$to;
+  $this->{helo}=$myName;
+  $this->{mailfrom}=$EmailFrom;
+  $this->{rcpt}=$to;
   $file='data/reports/';
   $file.=($type==0) ? 'spamreport.txt' :
          ($type==1) ? 'notspamreport.txt' :
@@ -4807,17 +4877,19 @@ sub taskReturnMail {
   $date=$UseLocalTime ? localtime() : gmtime();
   $tz=$UseLocalTime ? tzStr() : '+0000';
   $date=~s/(\w+) +(\w+) +(\d+) +(\S+) +(\d+)/$1, $3 $2 $5 $4/;
-  $this->{header}="From: $this->{from}\015\012".
-                  "To: $this->{to}\015\012".
+  $this->{header}="From: $this->{mailfrom}\015\012".
+                  "To: $this->{rcpt}\015\012".
                   "Subject: $sub2\015\012".
                   "X-Assp-Report: YES\015\012".
                   "Date: $date $tz\015\012";
+  $this->{inenvelope}=1;
  }];
 }
 
 
 sub RMhelo {
  my ($ch,$l);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{RMhelo}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -4825,8 +4897,9 @@ sub RMhelo {
   if ($l=~/^ *5/) {
    RMabort($ch,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
-   $Con{$ch}->{getline}=\&RMfrom;
-   sayque($ch,"HELO $myName");
+   $this=$Con{$ch};
+   $this->{getline}=\&RMfrom;
+   sayque($ch,"HELO $this->{helo}");
   }
  }];
  &{$sref->[0]};
@@ -4845,8 +4918,9 @@ sub RMfrom {
   } elsif ($l=~/^ *250 /) {
    $this=$Con{$ch};
    $this->{getline}=\&RMrcpt;
-   $from=$this->{from}=~/(<[^<>]+>)/ ? $1 : $this->{from};
+   $from=$this->{mailfrom}=~/(<[^<>]+>)/ ? $1 : $this->{mailfrom};
    sayque($ch,"MAIL FROM:$from");
+   $this->{inmailfrom}=1;
   }
  }];
  &{$sref->[0]};
@@ -4855,6 +4929,7 @@ sub RMfrom {
 
 sub RMrcpt {
  my ($ch,$l);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{RMrcpt}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -4862,8 +4937,9 @@ sub RMrcpt {
   if ($l=~/^ *5/) {
    RMabort($ch,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
-   $Con{$ch}->{getline}=\&RMdata;
-   sayque($ch,"RCPT TO:<$Con{$ch}->{to}>");
+   $this=$Con{$ch};
+   $this->{getline}=\&RMdata;
+   sayque($ch,"RCPT TO:<$this->{rcpt}>");
   }
  }];
  &{$sref->[0]};
@@ -4941,7 +5017,7 @@ sub RMabort {
 
 sub RMquit {
  my ($ch,$l);
- my $sref=$Tasks{$CurTaskID}->{RMdone}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{RMquit}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l,0);
@@ -5079,7 +5155,7 @@ sub taskUploadStats {
      mlog(0,'couldn\'t create socket to stats server');
     }
     waitTaskDelay(0,3600);
-    return cede('L3'); L3:
+    return cede('L4'); L4:
     next;
    }
    (%UploadStats)=();
@@ -5434,8 +5510,6 @@ sub statsTotals {
  $s{wbytesSMTP}=$s{pwbytesSMTP}+$s{dwbytesSMTP};
  $s{wbytesSMTP2}=$s{pwbytesSMTP2}+$s{dwbytesSMTP2};
  # messages processed per message class
-## $s{msgHam}=$Stats{noprocessing}+$Stats{locals}+$Stats{whites}+$Stats{reds}+$Stats{bhams}+$Stats{reports};
-## $s{msgHam2}=$AllStats{noprocessing}+$AllStats{locals}+$AllStats{whites}+$AllStats{reds}+$AllStats{bhams}+$AllStats{reports};
  $s{msgHam}=$Stats{bhams};
  $s{msgHam2}=$AllStats{bhams};
  $s{msgPassedSpam}=$Stats{spamlover}+$Stats{testspams};
@@ -5451,8 +5525,6 @@ sub statsTotals {
  $s{msg}=$s{msgHam}+$s{msgPassedSpam}+$s{msgBlockedSpam};
  $s{msg2}=$s{msgHam2}+$s{msgPassedSpam2}+$s{msgBlockedSpam2};
  # bytes received per message class
-## $s{prbytesHam}=$Stats{prbytesnoprocessing}+$Stats{prbyteslocals}+$Stats{prbyteswhites}+$Stats{prbytesreds}+$Stats{prbytesbhams}+$Stats{prbytesreports};
-## $s{prbytesHam2}=$AllStats{prbytesnoprocessing}+$AllStats{prbyteslocals}+$AllStats{prbyteswhites}+$AllStats{prbytesreds}+$AllStats{prbytesbhams}+$AllStats{prbytesreports};
  $s{prbytesHam}=$Stats{prbytesbhams};
  $s{prbytesHam2}=$AllStats{prbytesbhams};
  $s{prbytesPassedSpam}=$Stats{prbytesspamlover}+$Stats{prbytestestspams};
@@ -5469,8 +5541,6 @@ sub statsTotals {
                          $AllStats{prbytesmsgMaxErrors}+$AllStats{prbytesmsgServerRejected}+$AllStats{prbytesmsgRateLimited};
  $s{prbytesMsg}=$s{prbytesHam}+$s{prbytesPassedSpam}+$s{prbytesBlockedSpam};
  $s{prbytesMsg2}=$s{prbytesHam2}+$s{prbytesPassedSpam2}+$s{prbytesBlockedSpam2};
-## $s{drbytesHam}=$Stats{drbytesnoprocessing}+$Stats{drbyteslocals}+$Stats{drbyteswhites}+$Stats{drbytesreds}+$Stats{drbytesbhams}+$Stats{drbytesreports};
-## $s{drbytesHam2}=$AllStats{drbytesnoprocessing}+$AllStats{drbyteslocals}+$AllStats{drbyteswhites}+$AllStats{drbytesreds}+$AllStats{drbytesbhams}+$AllStats{drbytesreports};
  $s{drbytesHam}=$Stats{drbytesbhams};
  $s{drbytesHam2}=$AllStats{drbytesbhams};
  $s{drbytesPassedSpam}=$Stats{drbytesspamlover}+$Stats{drbytestestspams};
@@ -5496,8 +5566,6 @@ sub statsTotals {
  $s{rbytesMsg}=$s{prbytesMsg}+$s{drbytesMsg};
  $s{rbytesMsg2}=$s{prbytesMsg2}+$s{drbytesMsg2};
  # receive time per message class
-## $s{prtimeHam}=$Stats{prtimenoprocessing}+$Stats{prtimelocals}+$Stats{prtimewhites}+$Stats{prtimereds}+$Stats{prtimebhams}+$Stats{prtimereports};
-## $s{prtimeHam2}=$AllStats{prtimenoprocessing}+$AllStats{prtimelocals}+$AllStats{prtimewhites}+$AllStats{prtimereds}+$AllStats{prtimebhams}+$AllStats{prtimereports};
  $s{prtimeHam}=$Stats{prtimebhams};
  $s{prtimeHam2}=$AllStats{prtimebhams};
  $s{prtimePassedSpam}=$Stats{prtimespamlover}+$Stats{prtimetestspams};
@@ -5514,8 +5582,6 @@ sub statsTotals {
                         $AllStats{prtimemsgMaxErrors}+$AllStats{prtimemsgServerRejected}+$AllStats{prtimemsgRateLimited};
  $s{prtimeMsg}=$s{prtimeHam}+$s{prtimePassedSpam}+$s{prtimeBlockedSpam};
  $s{prtimeMsg2}=$s{prtimeHam2}+$s{prtimePassedSpam2}+$s{prtimeBlockedSpam2};
-## $s{drtimeHam}=$Stats{drtimenoprocessing}+$Stats{drtimelocals}+$Stats{drtimewhites}+$Stats{drtimereds}+$Stats{drtimebhams}+$Stats{drtimereports};
-## $s{drtimeHam2}=$AllStats{drtimenoprocessing}+$AllStats{drtimelocals}+$AllStats{drtimewhites}+$AllStats{drtimereds}+$AllStats{drtimebhams}+$AllStats{drtimereports};
  $s{drtimeHam}=$Stats{drtimebhams};
  $s{drtimeHam2}=$AllStats{drtimebhams};
  $s{drtimePassedSpam}=$Stats{drtimespamlover}+$Stats{drtimetestspams};
@@ -5541,8 +5607,6 @@ sub statsTotals {
  $s{rtimeMsg}=$s{prtimeMsg}+$s{drtimeMsg};
  $s{rtimeMsg2}=$s{prtimeMsg2}+$s{drtimeMsg2};
  # banner latency per message class
-## $s{lbannerHam}=$Stats{lbannernoprocessing}+$Stats{lbannerlocals}+$Stats{lbannerwhites}+$Stats{lbannerreds}+$Stats{lbannerbhams}+$Stats{lbannerreports};
-## $s{lbannerHam2}=$AllStats{lbannernoprocessing}+$AllStats{lbannerlocals}+$AllStats{lbannerwhites}+$AllStats{lbannerreds}+$AllStats{lbannerbhams}+$AllStats{lbannerreports};
  $s{lbannerHam}=$Stats{lbannerbhams};
  $s{lbannerHam2}=$AllStats{lbannerbhams};
  $s{lbannerPassedSpam}=$Stats{lbannerspamlover}+$Stats{lbannertestspams};
@@ -5560,8 +5624,6 @@ sub statsTotals {
  $s{lbanner}=$s{lbannerHam}+$s{lbannerPassedSpam}+$s{lbannerBlockedSpam};
  $s{lbanner2}=$s{lbannerHam2}+$s{lbannerPassedSpam2}+$s{lbannerBlockedSpam2};
  # min latency per message class
-## $s{lminHam}=$Stats{lminnoprocessing}+$Stats{lminlocals}+$Stats{lminwhites}+$Stats{lminreds}+$Stats{lminbhams}+$Stats{lminreports};
-## $s{lminHam2}=$AllStats{lminnoprocessing}+$AllStats{lminlocals}+$AllStats{lminwhites}+$AllStats{lminreds}+$AllStats{lminbhams}+$AllStats{lminreports};
  $s{lminHam}=$Stats{lminbhams};
  $s{lminHam2}=$AllStats{lminbhams};
  $s{lminPassedSpam}=$Stats{lminspamlover}+$Stats{lmintestspams};
@@ -5579,8 +5641,6 @@ sub statsTotals {
  $s{lmin}=$s{lminHam}+$s{lminPassedSpam}+$s{lminBlockedSpam};
  $s{lmin2}=$s{lminHam2}+$s{lminPassedSpam2}+$s{lminBlockedSpam2};
  # max latency per message class
-## $s{lmaxHam}=$Stats{lmaxnoprocessing}+$Stats{lmaxlocals}+$Stats{lmaxwhites}+$Stats{lmaxreds}+$Stats{lmaxbhams}+$Stats{lmaxreports};
-## $s{lmaxHam2}=$AllStats{lmaxnoprocessing}+$AllStats{lmaxlocals}+$AllStats{lmaxwhites}+$AllStats{lmaxreds}+$AllStats{lmaxbhams}+$AllStats{lmaxreports};
  $s{lmaxHam}=$Stats{lmaxbhams};
  $s{lmaxHam2}=$AllStats{lmaxbhams};
  $s{lmaxPassedSpam}=$Stats{lmaxspamlover}+$Stats{lmaxtestspams};
@@ -5897,7 +5957,7 @@ sub check4update {
  if ($mtime!=$FileUpdate{$fil}) {
   # reload
   $FileUpdate{$fil}=$mtime;
-  if (open(F,'<',"${$fil}")) {
+  if (open(F,'<',${$fil})) {
    my ($l,%h);
    local $/="\n";
    while ($l=<F>) {
@@ -6030,7 +6090,7 @@ sub newConnect {
     ioctl($sock,0x8004667e,pack('L',0)) if $^O eq 'MSWin32';
     return $sock;
    } else {
-    close $sock;
+    $sock->close();
     return 0;
    }
   } else {
@@ -6266,14 +6326,16 @@ sub corpusDetails {
   undef $/;
   close $fh;
   my $a;
-  if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo) {
+  if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo ||
+      $h=~/^X-Assp-Envelope-From$HeaderSepRe($HeaderValueRe)/imo) {
    $a=$1; $a=~tr/\002\003//; # sanitize
    $a="$1 $2" if ($a=~/($EmailAdrRe)(\@$EmailDomainRe)/o);
    $a=decodeMimeWords($a);
    $a=encodeHTMLEntities(substr($a,0,40));
   }
   $c->[1]=$a; $a='';
-  if ($h=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
+  if ($h=~/^X-Intended-For$HeaderSepRe($HeaderValueRe)/imo ||
+      $h=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
    $a=$1; $a=~tr/\002\003//; # sanitize
    if ($CanUseSRS && $EnableSRS) {
     my ($tt,$tt2);
@@ -6332,8 +6394,6 @@ sub corpusSetFlags {
 # copyright (C) 2004, John Hanna under the terms of the GPL
 
 package Av;
-
-use IO::File;
 
 # load the databases -- return the number of signatures present
 # optional parameters:
@@ -6399,7 +6459,7 @@ sub load {
  my $sref=$main::Tasks{$main::CurTaskID}->{Av::load}||=[sub{
   $fn=shift;
  },sub{&main::jump;
-  $fh=IO::File->new("<$fn");
+  open($fh,'<',$fn);
   $fileTimes{$fn}=[stat($fh)]->[9];
   ($nam,$sig,$lsig)=();
   while ($l=<$fh>) {
@@ -6471,8 +6531,8 @@ sub checkReload {
 # you may need to $av->clear to get the desired effects
 sub scanfile {
  my ($self,$fn,$n)=@_;
- my $fh=IO::File->new("<$fn") or die("Couldn't open $fn: $!");
- binmode $fh; # fixme: Perl5.6 IO::File lacks binmode support
+ open($fh,'<',$fn) or die("Couldn't open $fn: $!");
+ binmode $fh;
  my $c;
  $self->{offset}=$n;
  $self->{buf}='';

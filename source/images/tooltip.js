@@ -46,7 +46,7 @@ function showTooltip2() {
   tooltip_pop.innerHTML='resolving ...';
   tooltip_pop.style.display='block';
   var param=tooltip_elem.getAttribute('_param');
-  RSLite.call('/tooltip',param+';'+tooltip_elem.innerHTML);
+  RSLite.call('/tooltip',param+';'+escape(tooltip_elem.innerHTML));
 }
 
 function hideTooltip(e) {

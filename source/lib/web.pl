@@ -322,7 +322,7 @@ EOT
   if ($ShowTooltipsIP) {
    # handle IP addresses
    ($ret)=();
-   while ($text=~/\G(.*?)((?<![@.\w\-])\b(?:\d{1,3}\.){3}\d{1,3}\b(?![@.\w\-]))/cgso) { # /c - keep pos() on match fail
+   while ($text=~/\G(.*?)((?<![@.\w\-=])\b(?:\d{1,3}\.){3}\d{1,3}\b(?![@.\w\-=]))/cgso) { # /c - keep pos() on match fail
     $ret.=<<EOT;
 $1<span class="$class" _class="$class" _class_active="tooltip_ip" _param="2" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$2</span>
 EOT
@@ -335,7 +335,7 @@ EOT
   if ($ShowTooltipsHost) {
    # handle host names
    ($ret)=();
-   while ($text=~/\G(.*?)((?<![@.\w\-])\b(?:[\w\-]+\.)+[a-z]{2,5}\b(?![@.\w\-]))/cgiso) { # /c - keep pos() on match fail
+   while ($text=~/\G(.*?)((?<![@.\w\-=])\b(?:[\w\-]+\.)+[a-z]{2,5}\b(?![@.\w\-=]))/cgiso) { # /c - keep pos() on match fail
     $ret.=<<EOT;
 $1<span class="$class" _class="$class" _class_active="tooltip_host" _param="3" onMouseOver="initTooltip(this);" onClick="selectElement(this);">$2</span>
 EOT
@@ -896,15 +896,15 @@ sub webLists {
     if ($1 eq 'R') {
      $gpc->{list}='red'; # update radios
      $RedlistObject->flush() if $RedlistObject;
-     $fh=IO::File->new("<$base/$redlistdb");
+     open($fh,'<',"$base/$redlistdb");
      $s.='<div class="text"><b>Redlisted addresses ('.$maxage_desc.')</b></div>';
     } else {
      $gpc->{list}='white'; # update radios
      $WhitelistObject->flush() if $WhitelistObject;
-     $fh=IO::File->new("<$base/$whitelistdb");
+     open($fh,'<',"$base/$whitelistdb");
      $s.='<div class="text"><b>Whitelisted addresses ('.$maxage_desc.')</b></div>';
     }
-    if (defined $fh) {
+    if ($fh) {
      while (local $/="\n",$l=<$fh>) {
       return cede('L1',1); L1:
       ($adr,$rec)=$l=~/([^\002]*)\002(.*)/;
@@ -921,7 +921,7 @@ sub webLists {
        $s.='<div class="text">'.++$cnt.'. '.$adr.' added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age,0).'</div>';
       }
      }
-     $fh->close();
+     close $fh;
      return cede('L2'); L2:
     }
    }
@@ -1388,7 +1388,6 @@ sub SMdata2 {
   my $mail=$Con{$client}->{_body};
   while ($mail=~/(.*\015\012)/g) {
    my $line=$1;
-   PeekLoop();
    SMTPTraffic($client,$line);
    last if $line=~/^\.(?:\015\012)?$/;
   }
@@ -1439,7 +1438,7 @@ sub webSimulate {
   my ($ip3)=$ip=~/(.*)\.\d+$/;
   my ($helo)=$body=~/helo=(.*?)\)/i;
   my ($from)=$body=~/^(?:From|X-Assp-Envelope-From)$HeaderSepValueNgRe($EmailAdrRe\@$EmailDomainRe)/imo;
-  my ($rcpt)=$body=~/^(?:To|X-Envelope-To|X-intended-for|X-original-recipient)$HeaderSepValueNgRe($EmailAdrRe\@$EmailDomainRe)/imo;
+  my ($rcpt)=$body=~/^(?:To|X-Envelope-To|X-Intended-for|X-Original-recipient)$HeaderSepValueNgRe($EmailAdrRe\@$EmailDomainRe)/imo;
   if ($gpc->{B1}=~/run/i) {
    $ip=$gpc->{ip};
    $helo=$gpc->{helo};
@@ -1464,8 +1463,6 @@ sub webSimulate {
    @{$this->{_rcpt}}=$rcpt=~/($EmailAdrRe\@$EmailDomainRe)/go;
    $this->{_body}="$body\015\012.\015\012";
    while ($this->{connected}) {
-    # run it !
-##    MainLoop();
    }
    $mlog=$SMTPSessions{$ch}->{mlogbuf};
    $slog=$SMTPSessions{$ch}->{slogbuf};
@@ -1842,7 +1839,6 @@ sub webCorpusItem {
  return '' unless defined $det->[0];
  return '' if $gpc->{nomoved} && ($det->[4] & 2);
  if (@{$good} || @{$bad}) {
-  PeekLoop();
   open(I,'<',"$base/${$coll}/$fn");
   binmode I;
   local $/;
@@ -1907,7 +1903,7 @@ EOT
 sub webCorpus {
  my ($http,$gpc);
  my ($t,$last_visit,$this_visit,$since,@sel_colls,$coll,$sel_coll_html,$coll_desc,$def_coll,$c,@sel_maxages,$sel_maxage);
- my ($maxage,$sel_maxage_html,$maxage_desc,$def_maxage,@sel_acts,$sel_act,$act,$sel_act_html,$act_desc,$def_act);
+ my ($maxage,$sel_maxage_html,$maxage_desc,$def_maxage,@sel_acts,$sel_act,$act,$sel_act_html,$act_desc,$def_act,$det3);
  my ($s,$res,$done,$i,$icoll,$fil,$coll2,$det,$f,$nf,$pat,@tokens,@good,@bad,$matches,%dir2coll,$l,%s,$fil2,$rec);
  my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies,@dir,$n,$fil3,$fh);
  my $sref=$Tasks{$CurTaskID}->{webCorpus}||=[sub{
@@ -2119,7 +2115,7 @@ EOT
    if (open($fh,'<',"$base/$corpusdb")) {
     ($l,%s)=();
     while (local $/="\n",$l=<$fh>) {
-     return cede('L6',1); L6:
+     return cede('L1',1); L1:
      ($fil2,$rec)=$l=~/([^\002]*)\002(.*)/;
      ($dir)=();
      ($dir,$fil2)=$fil2=~/(.*)[\\\/](.*)/;
@@ -2146,7 +2142,7 @@ EOT
    closedir(DIR);
    (@items)=();
    for ($n=0;$n<@dir;$n++) {
-    return cede('L7',1); L7:
+    return cede('L2',1); L2:
     $fil3=$dir[$n];
     push(@items,[$fil3,corpus("${$coll}/$fil3")->[0]]);
    }
@@ -2154,9 +2150,10 @@ EOT
           grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
           @items;
    for ($n=0;$n<@items;$n++) {
-    return cede('L8',1); L8:
+    return cede('L3'); L3:
     $i=$items[$n];
-    if ($res2=webCorpusItem($coll,$i->[0],corpusDetails("${$coll}/$i->[0]"),$gpc,\@good,\@bad)) {
+    $det3=corpusDetails("${$coll}/$i->[0]");
+    if ($res2=webCorpusItem($coll,$i->[0],$det3,$gpc,\@good,\@bad)) {
      $s.=$res2;
      $matches++;
     }
@@ -2503,7 +2500,7 @@ EOT
   $HTMLHeaders.="  <div class=\"tooltip_pop\" id=\"tooltip_pop\" onMouseOver=\"selectElement(this)\" onClick=\"selectElement(this);\"></div>\n" if $ShowTooltipsIP || $ShowTooltipsHost || $ShowTooltipsEmail;
   chomp($HTMLHeaders);
   unless ($gpc->{hexview}) {
-   return call('L4',addTooltips($s,$gpc->{nohighlight_c})); L4: $s=shift;
+   return call('L2',addTooltips($s,$gpc->{nohighlight_c})); L2: $s=shift;
   }
   return <<EOT;
 $HTTPHeaderOK
@@ -3071,7 +3068,7 @@ EOT
 
 sub webShutdownFrame {
  my ($http,$gpc);
- my ($action,$s1,$s2,$query,$refresh,$shutdownDelay,$timerJS,$sessCnt,$ch,$m,$indent,$client,$from,$to);
+ my ($action,$s1,$s2,$query,$refresh,$shutdownDelay,$timerJS,$sessCnt,$sh,$m,$indent,$client,$from,$to);
  my $sref=$Tasks{$CurTaskID}->{webShutdownFrame}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -3124,17 +3121,16 @@ sub webShutdownFrame {
    $refresh=2;
    $s1=$sessCnt>0 ? ($sessCnt>1 ? 'There are ' : 'There is '). needEs($sessCnt,' SMTP session','s') .' active.' : 'There are no active SMTP sessions.';
    $s1.='<pre>';
-   foreach $ch (keys %SMTPSessions) {
-    $m=localtime(int($SMTPSessions{$ch}->{stime}));
+   foreach $sh (keys %SMTPSessions) {
+    $m=localtime(int($SMTPSessions{$sh}->{stime}));
     $m=~s/^... (...) +(\d+) (\S+) ..(..)/$1-$2-$4 $3 /;
     $indent=' ' x length($m); # calculate indent
     ($client,$from)=();
-    $client="$SMTPSessions{$ch}->{client} ($Con{$ch}->{helo}) " if $Con{$ch}->{inenvelope};
-    $from="<$Con{$ch}->{mailfrom}> " if $Con{$ch}->{inmailfrom};
-    ($to)=$Con{$ch}->{rcpt}=~/(\S+)/;
+    $client="$SMTPSessions{$sh}->{client} ($Con{$sh}->{helo}) " if $Con{$sh}->{inenvelope};
+    $from="<$Con{$sh}->{mailfrom}> " if $Con{$sh}->{inmailfrom};
+    ($to)=$Con{$sh}->{rcpt}=~/(\S+)/;
     $to="to: $to " if $to;
-    $m.="$client$from$to";
-    $m.="\n";
+    $m.="$client$from$to\n";
     $m=encodeHTMLEntities($m);
     $m=logWrap($m,$MaillogTailWrapColumn,$indent) if $MaillogTailWrapColumn>0;
     $s1.=$m;
@@ -3176,7 +3172,6 @@ $HTMLHeaderDTDStrict
         </tr>
       </table>
     </form>
-$s
   </div>
 </body>
 </html>
