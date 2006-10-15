@@ -75,7 +75,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
                         '12' => 'virii folder'};
 
 @Config=(
-[0,0,0,\&heading,'Network Setup'],
+['Network Setup'],
  # except for the heading lines, all config lines have the following:
  #  $name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data
  # name is the variable name that holds the data
@@ -132,7 +132,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    Changing this will require changing the URL on your browser to reconnect.
    You can supply an interface:port to limit connections.',undef],
 
-[0,0,0,\&heading,'Relaying Control'],
+['Relaying Control'],
  ['acceptAllMail','Accept All Mail*',60,\&textinput,'','(.*)',\&configMakeIPRe,
   'Allows relaying for these hosts. These hosts also contribute to the whitelist.<br />
    For example: 127.0.0.1|10.|169.254.|172.16.|192.168.',undef],
@@ -176,7 +176,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['NoRelaying','No Relaying Error',80,\&textinput,'550 5.7.1 Forwarding to remote hosts disabled. This attempt has been logged.','(55\d .*)',undef,
   'SMTP error message to deny relaying.',undef],
 
-[0,0,0,\&heading,'Connection Validation'],
+['Connection Validation'],
  ['GreetDelay','SMTP Greeting Delay',5,\&textinput,0,'(\d+)',undef,
   'Delay sending 220 greeting message from SMTP server for this many seconds.<br />
    Some spammers use broken software and start transmitting before SMTP server sends the banner.<br />
@@ -192,7 +192,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['GreetDelayError','Reply Message to Refuse E<!--get rid of google autofill-->mail disobeying Greeting Delay',80,\&textinput,'554 SMTP synchronization error. Contact the postmaster of this domain for resolution. This attempt has been logged.','([45]5\d .*|)',undef,
   'SMTP reply message to refuse mail from spontaneous clients. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Client Validation'],
+['Client Validation'],
  ['ValidateHelo','Enable HELO Validation',0,\&checkbox,1,'(.*)',undef,
   'Enable HELO/EHLO Validation. Senders that fail HELO validation will receive SpamError SMTP error code.<br />
    Note: no error is sent if HELO Validation is in test mode.',undef],
@@ -207,9 +207,9 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   {'1'=>'noprocessing',
    '2'=>'whitelisted',
    '4'=>'rwl hits'}],
- ['hlSpamRe','Expression to Identify Spam HELO*',80,\&textinput,'\d+[_.-]\d+[_.-]|^[^.]+\.?$|dynamic|ddns|dns.org$','(.*)',\&configCompileRe,
+ ['hlSpamRe','Expression to Identify Spam HELO*',80,\&textinput,'\d+[_.-]\d+[_.-]|^[^.]+\.?$|dynamic|ddns|dns\.org$','(.*)',\&configCompileRe,
   'If HELO string matches this Perl regular expression message will be considered spam.<br />
-   For example: \d+[_.-]\d+[_.-]|^[^.]+\.?$|dynamic|ddns|dns.org$',undef],
+   For example: \d+[_.-]\d+[_.-]|^[^.]+\.?$|dynamic|ddns|dns\.org$',undef],
  ['HeloForged','Block forged local HELOs',0,\&checkbox,1,'(.*)',undef,
   'Block remote clients that claim to come from our Local Domain/Local Host Name.',undef],
  ['HeloBlacklist','Use the HELO Blacklist',1,\&checkbox,1,'(.*)',undef,
@@ -221,7 +221,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Enter IP addresses that you don\'t want to be HELO validated, separated by pipes (|).<br />
    For example: 127.0.0.1|192.168.',undef],
 
-[0,0,0,\&heading,'Sender Validation'],
+['Sender Validation'],
  ['ValidateSender','Enable Sender Validation',0,\&checkbox,'','(.*)',undef,
   'Enable Sender Validation. Senders that fail this test will receive SpamError SMTP error code.<br />
    Note: no error is sent if Sender Validation is in test mode.',undef],
@@ -247,7 +247,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Enter sender addresses that you don\'t want to be validated, separated by pipes (|).<br />
    Valid entry types are as per spamlovers.',undef],
 
-[0,0,0,\&heading,'Recipient Validation'],
+['Recipient Validation'],
  ['LocalAddresses_Flat','Local Addresses*',60,\&textinput,'','(.*)',\&configMakeSLRe,
   'These email addresses are considered local by ASSP. You can list specific addresses (user@mydomain.com),<br />
    addresses at any local domain (user), or entire local domains (@mydomain.com). Separate entries with pipes: |.<br />
@@ -267,7 +267,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    to confuse address harvesters. The literal EMAILADDRESS (case sensitive) is replaced by the fully qualified<br />
    SMTP recipient (e.g. thisuser@yourcompany.com).',undef],
 
-[0,0,0,\&heading,'LDAP Client Options'],
+['LDAP Client Options'],
  ['LDAPHost','LDAP Hosts*',60,\&textinput,'localhost','(.*)',\&configUpdateLDAPHost,
   'Enter the DNS-names or IP addresses of the servers that run the LDAP databases, separated by "|".<br />
    Connection failures are handled in a round-robin manner. For example: localhost|ldap.mydomain.com',undef],
@@ -287,7 +287,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    The literal EMAILADDRESS (case sensitive) is replaced by the fully qualified SMTP recipient<br />
    (eg. user@domain.com) during the search. For example: (proxyaddresses=smtp:EMAILADDRESS)',undef],
 
-[0,0,0,\&heading,'Noprocessing Options'],
+['Noprocessing Options'],
  ['noProcessing','Unprocessed Addresses*',60,\&textinput,'','(.*)',\&configMakeSLRe,
   'Mail solely to or from any of these addresses are ignored by ASSP.<br />
    Like a more efficient version of spamLovers &amp; redlist combined. Valid entry types are as per spamlovers.',undef],
@@ -296,7 +296,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['npLwlRe','Expression to Identify Local/Whitelisted No-processing Mail*',80,\&textinput,'','(.*)',\&configCompileRe,
   'If local or whitelisted email header or body matches this Perl regular expression it will pass through unprocessed.',undef],
 
-[0,0,0,\&heading,'SPAM Lover Options'],
+['SPAM Lover Options'],
  ['spamLovers','Spam-Lover Addresses*',60,\&textinput,'postmaster','(.*)',\&configMakeSLRe,
   'Spam addressed entirely to spam lovers is not blocked. Mail addressed to both spam lovers and non spam lovers IS blocked.<br />
    Accepts specific addresses (user@domain.com), addresses at local domains (user), or entire local domains (@domain.com).<br />
@@ -326,7 +326,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['ratelimitSpamLovers','RateLimit Spam-Lover Addresses*',60,\&textinput,'','(.*)',\&configMakeSLRe,
   'RateLimit Spam-Lover Addresses.',undef],
 
-[0,0,0,\&heading,'Whitelist Options'],
+['Whitelist Options'],
  ['whiteListedDomains','Whitelisted Domains*',60,\&textinput,'sourceforge.net','(.*)',\&configMakeRe,
   'Domains from which you want to receive all mail<br />
    Your ISP, domain registration, mail list servers, stock broker, or other key business partners might be good candidates.<br />
@@ -367,7 +367,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['DelayWL','Whitelisted Delaying',0,\&checkbox,'','(.*)',undef,
   'Enable Delaying for whitelisted senders also.',undef],
 
-[0,0,0,\&heading,'SPAM Control'],
+['SPAM Control'],
  ['blackListedDomains','Blacklisted Domains*',60,\&textinput,'','(.*)',\&configMakeRe,
   'Domains from which you always want to reject mail, they only send you spam. For example: spam.net|xxxpics.com',undef],
  ['spamaddresses','Spam Trap Addresses*',60,\&textinput,'put|your@spambucket.com|addresses|@here.org','(.*)',\&configMakeSLRe,
@@ -377,7 +377,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP error message to reject Invalid HELO, Blacklisted domain, Spam Trap and Bayesian spam.<br />
    If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Delaying Options'],
+['Delaying Options'],
  ['EnableDelaying','Enable Delaying',0,\&checkbox,'','(.*)',undef,
   'Enable Greylisting (to avoid name clash let\'s call it Delaying) as described at <a href="http://projects.puremagic.com/greylisting/" rel="external">projects.puremagic.com/greylisting</a>.<br />
    It\'s a new method of blocking significant amounts of spam at the mailserver level, but without resorting to heavyweight<br />
@@ -410,7 +410,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['DelayError','Reply Message to Refuse Delayed E<!--get rid of google autofill-->mail',80,\&textinput,'451 4.7.1 Please try again later','(45\d .*)',undef,
   'SMTP reply message to refuse delayed mail.',undef],
 
-[0,0,0,\&heading,'SPF Options'],
+['SPF Options'],
  ['ValidateSPF','Enable SPF Validation',0,\&checkbox,1,'(.*)',undef,
   'Enable Sender Policy Framework Validation as described at <a href="http://spf.pobox.com" rel="external">spf.pobox.com</a>.<br />
    This requires an installed <a href="http://spf.pobox.com/downloads.html" rel="external">Mail::SPF::Query</a> module in PERL.<br />
@@ -438,7 +438,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP reply message to refuse failed SPF mail. The literal COMMENT (case sensitive) is replaced<br />
    by the SPF failure decription. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'RBL Options'],
+['RBL Options'],
  ['ValidateRBL','Enable Realtime Blacklist Validation',0,\&checkbox,1,'(.*)',\&configUpdateRBL,
   'Senders that fail RBL validation will receive RBLError SMTP error code.<br />
    Note: no error is sent if RBL is in test mode.',undef],
@@ -476,7 +476,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP reply message to refuse failed RBL mail. The literal RBLNAME (case sensitive) is replaced<br />
    by the names of RBLs with negative response. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'SRS Options'],
+['SRS Options'],
  ['EnableSRS','Enable Sender Rewriting Scheme',0,\&checkbox,'','(.*)',\&configUpdateSRS,
   'Enable Sender Rewriting Scheme as described at <a href="http://spf.pobox.com/srs.html" rel="external">spf.pobox.com/srs.html</a>.<br />
    This requires an installed <a href="http://spf.pobox.com/downloads.html" rel="external">Mail::SRS</a> module in PERL.<br />
@@ -514,7 +514,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP reply message to refuse bounce messages that fail reverse SRS validation.<br />
    If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Message Verification'],
+['Message Verification'],
  ['EnableMsgVerify','Enable Message Verification',0,\&checkbox,'','(.*)',undef,
   'Enable Message Verification. Connections that fail Message Verification will receive SpamError SMTP error code.<br />
    Note: no error is sent if Message Verification is in test mode.',undef],
@@ -534,7 +534,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['noMsgVerify','Don\'t Verify Messages from these Addresses/IP\'s*',60,\&textinput,'','(.*)',\&configMakeSLIPRe,
   'Don\'t Verify Messages from these Addresses. Valid entry types are as per spamlovers or IP addresses.',undef],
 
-[0,0,0,\&heading,'Spam Bombs &amp; Scripting'],
+['Spam Bombs &amp; Scripting'],
  ['bombRe','Expression to Identify Spam Bombs*',80,\&textinput,'','(.*)',\&configCompileRe,
   'It is possible for a spammer to create 1000s of messages that appear to be from your domain.<br />
    When these messages bounce, the bounces come to you. You can use this feature to block those messages.<br />
@@ -549,7 +549,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['scriptError','Script Error',80,\&textinput,'550 5.7.7 HTML scripting code not allowed. Resend with scripts removed, or contact the postmaster of this domain for resolution. This attempt has been logged.','(55\d .*|)',undef,
   'SMTP error message to reject scripts. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Attachment Control'],
+['Attachment Control'],
  ['BlockExes','External Attachment Blocking',1,\&option,0,'(\d*)',undef,
   'This determines the level of attachment protection to provide for external mail.',$AttachmentBlockLevels],
  ['BlockWLExes','Whitelisted &amp; Local Attachment Blocking',1,\&option,0,'(\d*)',undef,
@@ -574,7 +574,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['AttachmentError','Attachment Error',80,\&textinput,'550 5.7.7 Executable attachments not allowed. Compress any attachments before mailing, or contact the postmaster of this domain for resolution. This attempt has been logged.','(55\d .*|)',undef,
   'SMTP error message to reject attachments. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'URIBL Options'],
+['URIBL Options'],
  ['ValidateURIBL','Enable URI Blocklist Validation',0,\&checkbox,1,'(.*)',\&configUpdateURIBL,
   'Enable URI Blocklist as described at <a href="http://www.uribl.com/about.shtml" rel="external">www.uribl.com/about.shtml</a>.<br />
    Messages that fail URIBL validation will receive URIBLError SMTP error code.<br />
@@ -618,7 +618,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP reply message to refuse failed URIBL mail. The literal URIBLNAME (case sensitive) is replaced<br />
    by the names of URIBLs with negative response. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Virus Control'],
+['Virus Control'],
  ['AvUseClamAV','Use ClamAV Engine',0,\&checkbox,'','(.*)',undef,
   'Scan for viruses using <a href="http://www.clamav.net/" rel="external">ClamAV\'s</a> clamd daemon.',undef],
  ['AvDestination','Clamd Destination',20,\&Avtextinput,'127.0.0.1:3310','(\S*)',undef,
@@ -641,7 +641,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'SMTP error message to reject infected mail. The string $infection is replaced with the name of the detected virus.<br />
    If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Bayesian Options'],
+['Bayesian Options'],
  ['whiteRe','Expression to Identify Non-Spam*',80,\&textinput,'','(.*)',\&configCompileRe,
   'If an incoming email matches this Perl regular expression it will be considered non-spam.<br />
    For example: Secret Ham Password|307\D{0,3}730\D{0,3}4[12]\d\d<br />
@@ -655,7 +655,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Check this if you don\'t want Bayesian filtering and want to reject all mail from anyone not whitelisted.<br />
    Note: this turns the redlist into a blacklist.',undef],
 
-[0,0,0,\&heading,'TestMode Options'],
+['TestMode Options'],
  ['hlTestMode','Helo Test Mode',0,\&checkbox,1,'(.*)',undef,
   'If set then all Invalid HELO messages are delivered.',undef],
  ['mfTestMode','Sender Test Mode',0,\&checkbox,1,'(.*)',undef,
@@ -677,7 +677,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['baysTestMode','Bayesian Test Mode',0,\&checkbox,1,'(.*)',undef,
   'If set then all Bayesian Spam messages are delivered.',undef],
 
-[0,0,0,\&heading,'RateLimit Options'],
+['RateLimit Options'],
  ['EnableRateLimit','Enable RateLimit',0,\&checkbox,'','(.*)',undef,
   'Enable per-client rate-limiting and auto-blocking.<br /><br />
    Note: Parameters accept data in the following format: Limit/Interval/BlockTime.<br />
@@ -866,7 +866,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['RateLimitBlockedError','RateLimit Blocked Error',80,\&textinput,'550 5.7.7 Client blocked. This attempt has been logged.','(55\d .*|)',undef,
   'SMTP error message to reject blocked connections. If this field is empty, client connection is simply dropped.',undef],
 
-[0,0,0,\&heading,'Postprocessing Options'],
+['Postprocessing Options'],
  ['spamSubject','Prepend Spam Subject',20,\&textinput,'','(.*)',\&configMakeSubTagRe,
   'If TestMode and message is spam, spamSubject gets prepended to the subject of the email.<br />
    The literal TAG (case sensitive) is replaced by verbose spam description. For example: [SPAM-TAG]',undef],
@@ -894,8 +894,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['AddSpamAnalysisHeader','Add X-Assp-Spam-Analysis Header',0,\&checkbox,1,'(.*)',undef,
   'Adds X-Assp-Spam-Analysis header to header of all emails processed by Bayesian filter.',undef],
 
-
-[0,0,0,\&heading,'Collection Options'],
+['Collection Options'],
  ['npColl','No Processing',1,\&option,6,'([1-6])',undef,
   'Where to store no processing emails.<br /><br />
    Note: Messages may undergo multiple spam tests. At any stage of processing, the test will be performed only if its assigned<br />
@@ -961,7 +960,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['NoMaillog','Don\'t collect mail',0,\&checkbox,'','(.*)',undef,
   'Check this if you\'re using Whitelist-Only and don\'t care to save mail to build the Bayesian database.',undef],
 
-[0,0,0,\&heading,'Email Interface'],
+['Email Interface'],
  ['EmailInterfaceOk','Enable Email Interface',0,\&checkbox,1,'(.*)',undef,
   'Checked means that you want to ASSP to intercept and parse mail to the following usernames at any localdomains.<br />
    If you are using RelayHost and RelayPort see
@@ -1001,7 +1000,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    Some mailers don\'t like the default setting. For example: ASSP &lt;&gt; or Mail Administrator
    &lt;mailadmin@mydomain.com&gt;',undef],
 
-[0,0,0,\&heading,'CC Options'],
+['CC Options'],
  ['ccHam','Address to CC Ham',40,\&textinput,'','(.*)',undef,
   'If you put an email address in this box ASSP will try to deliver a copy of ham email to this address.<br />
    This is the forward ham feature. For example: spammeister@mydomain.com',undef],
@@ -1024,7 +1023,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'CC emails addressed only to or from any of these addresses. Valid entry types are as per spamlovers.<br />
    Leave this blank to disable feature.',undef],
 
-[0,0,0,\&heading,'File Paths'],
+['File Paths'],
  ['base','Directory Base',40,\&textinput,'.','',undef,
   'All paths are relative to this folder.<br />
    <b>Note: this must be changed as a command line parameter and is displayed here for reference only.</b>',undef],
@@ -1069,7 +1068,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Blank to skip writing a pid file. *nix users need pid files.
    Leave it blank in Windows.<br /> You have to restart the service before you get a pid file in the new location.',undef],
 
-[0,0,0,\&heading,'Logging'],
+['Logging'],
  ['silent','Silent Mode',0,\&checkbox,'','(.*)',undef,
   'Checked means don\'t print log messages to the console. AsADaemon overrides this.',undef],
  ['ConnectionLog','Connections Logging',0,\&checkbox,1,'(.*)',undef,
@@ -1117,7 +1116,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    If greater than 0, ASSP rotates the log files in this many copies adding numbers to the file names.<br />
    Set this to prevent log files directory from growing too large.',undef],
 
-[0,0,0,\&heading,'Security'],
+['Security'],
  ['runAsUser','Run as UID',20,\&textinput,'','(\S*)',undef,
   'The *nix user name to assume after startup: assp or nobody -- requires ASSP restart.',undef],
  ['runAsGroup','Run as GID',20,\&textinput,'','(\S*)',undef,
@@ -1136,7 +1135,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    Note that IP source addresses are very easy to spoof, so this should not be considered as a security feature.<br />
    <span class="negative">If you make a mistake here you will disable your web admin interface and have to manually edit your configuration file to fix it.</span>',undef],
 
-[0,0,0,\&heading,'Other Settings'],
+['Other Settings'],
  ['MaxBytes','Max Bytes',10,\&textinput,20000,'(\d+)',undef,
   'How many bytes of the message will ASSP look at? For example: 20000',undef],
  ['MaxRebuildBytes','Max Rebuild Bytes',10,\&textinput,10000,'(\d+)',undef,
@@ -1229,6 +1228,7 @@ sub configInit {
  }
  # set nonexistent settings to default values
  foreach my $c (@Config) {
+  next if @{$c}==1; # skip headings
   if ($c->[0] && !(exists $Config{$c->[0]})) {
    $Config{$c->[0]}=$c->[4];
   }
@@ -1245,6 +1245,7 @@ sub configInitRE {
  # turn settings into regular expressions
  @PossibleOptionFiles=();
  foreach my $c (@Config) {
+  next if @{$c}==1; # skip headings
   if ($c->[6]==\&configMakeRe ||
       $c->[6]==\&configMakeSLRe ||
       $c->[6]==\&configMakeIPRe ||
