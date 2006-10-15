@@ -9,27 +9,32 @@
  */
 
 function toggleDisp(nodeid) {
-  if (nodeid.substr(0,9)=='setupItem')
-    nodeid=nodeid.substr(9);
+  if (nodeid.substr(0,10)=='configItem')
+    nodeid=nodeid.substr(10);
   layer=document.getElementById('treeElement'+nodeid);
   img=document.getElementById('treeIcon'+nodeid);
   if (layer.style.display=='none') {
     layer.style.display='block';
     img.src='get?file=images/minusIcon.png';
-    if (document.getElementById('setupItem'+nodeid))
-      document.getElementById('setupItem'+nodeid).style.display='block';
+    if (document.getElementById('configItem'+nodeid))
+      document.getElementById('configItem'+nodeid).style.display='block';
   } else {
     layer.style.display='none';
     img.src='get?file=images/plusIcon.png';
-    if (document.getElementById('setupItem'+nodeid))
-      document.getElementById('setupItem'+nodeid).style.display='none';
+    if (document.getElementById('configItem'+nodeid))
+      document.getElementById('configItem'+nodeid).style.display='none';
   }
 }
 
 function expand(expand, force) {
   counter=0;
   while (document.getElementById('treeElement'+counter)) {
-    if (!expand) {
+    if (expand) {
+      document.getElementById('treeElement'+counter).style.display='block';
+      document.getElementById('treeIcon'+counter).src='get?file=images/minusIcon.png';
+      if (document.getElementById('configItem'+counter))
+        document.getElementById('configItem'+counter).style.display='block';
+    } else {
       //dont shrink if this element is the one passed in the URL
       arr=document.getElementById('treeElement'+counter).getElementsByTagName('a');
       txt=''; found=0;
@@ -46,14 +51,9 @@ function expand(expand, force) {
       if (!found | force) {
         document.getElementById('treeIcon'+counter).src='get?file=images/plusIcon.png';
         document.getElementById('treeElement'+counter).style.display='none';
-        if (document.getElementById('setupItem'+counter))
-          document.getElementById('setupItem'+counter).style.display='none';
+        if (document.getElementById('configItem'+counter))
+          document.getElementById('configItem'+counter).style.display='none';
       }
-    } else {
-      document.getElementById('treeElement'+counter).style.display='block';
-      document.getElementById('treeIcon'+counter).src='get?file=images/minusIcon.png';
-      if (document.getElementById('setupItem'+counter))
-        document.getElementById('setupItem'+counter).style.display='block';
     }
     counter++;
   }

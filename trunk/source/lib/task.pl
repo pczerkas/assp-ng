@@ -266,10 +266,6 @@ sub doTask {
   }
  }
  @Tasks=(@high,@norm,@idle,@wait,@suspend);
-
-##
-##print "@high | @norm | @idle | @wait | @suspend\n" if scalar @norm>3;
-
  $KernelStats{max_queue}=scalar @Tasks if @Tasks>$KernelStats{max_queue};
  $KernelStats{max_high_queue}=scalar @high if @high>$KernelStats{max_high_queue};
  $KernelStats{max_norm_queue}=scalar @norm if @norm>$KernelStats{max_norm_queue};

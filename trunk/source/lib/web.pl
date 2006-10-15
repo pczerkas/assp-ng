@@ -398,7 +398,6 @@ sub webRequest {
    ($k,$v)=split('=',$q);
    $k=~tr/+/ /;
    $k=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
-   $k=~s/(e)_(mail)/$1$2/gi; # get rid of google autofill
    $v=~tr/+/ /;
    $v=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
    if ($k=~/\[\]$/) {
@@ -416,7 +415,7 @@ sub webRequest {
      ($k,$v)=split('=',$r);
      $k=~tr/+/ /;
      $k=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
-     $k=~s/(e)_(mail)/$1$2/gi; # get rid of google autofill
+     $k=~s/^(\d+)/$Config[$1]->[0]/;
      $v=~tr/+/ /;
      $v=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
      if ($k=~/\[\]$/) {
@@ -567,10 +566,11 @@ EOT
 EOT
  my $counter=0;
  foreach my $c (@Config) {
-  if (@{$c}==5) {
+  if (@{$c}==1) {
+   # heading
    $HTMLHeaders.=<<EOT;
     </div>
-    <div class="menuLevel2"><a onmousedown="toggleDisp('$counter')"><img id="treeIcon$counter" src="get?file=images/plusIcon.png" alt="plusicon" /> $c->[4]</a></div>
+    <div class="menuLevel2"><a onmousedown="toggleDisp('$counter')"><img id="treeIcon$counter" src="get?file=images/plusIcon.png" alt="plusicon" /> $c->[0]</a></div>
     <div id="treeElement$counter" style="padding-left: 3px; display: block">
 EOT
    $counter++;
@@ -734,7 +734,7 @@ sub webLists {
        $mlink="logs?search=$mlink&log=slog&file=last&limit=1&nocontext=";
        $s.='<span class="negative">';
        $s.=$ip eq $range || !$RateLimit{$ip} ? 'range ' : 'address ';
-       $s.='blocked=<a href="'.$mlink.'"><span style="font-weight: normal; color: red">'.$dat.'</span></a> reason='.$name.' expires='.formatTimeInterval($expires,0).'</span>';
+       $s.='blocked=<a href="'.$mlink.'"><span style="font-weight: normal; color: red">'.$dat.'</span></a> reason='.$name.' expires='.formatTimeInterval($expires).'</span>';
       } else {
        $s.='<span class="positive">address/range not blocked</span>';
       }
@@ -781,7 +781,7 @@ sub webLists {
        $s.='<span class="negative">tuplet not whitelisted</span>';
       } else {
        $interval=$t-$DelayWhite{$hash};
-       $intfmt=formatTimeInterval($interval,0);
+       $intfmt=formatTimeInterval($interval);
        if ($interval<$DelayExpiryTime*86400) {
         $s.='<span class="positive">tuplet whitelisted, age: '.$intfmt.'</span>';
        } else {
@@ -805,7 +805,7 @@ sub webLists {
        $s.='<span class="negative">tuplet not whitelisted</span>';
       } else {
        $interval=$t-$DelayWhite{$hash};
-       $intfmt=formatTimeInterval($interval,0);
+       $intfmt=formatTimeInterval($interval);
        if ($interval<$DelayExpiryTime*86400) {
         $s.="<span class=\"positive\">tuplet removed, age: $intfmt</span>";
        } else {
@@ -836,7 +836,7 @@ sub webLists {
        $mlink=~s/ *$//;
        $mlink=escapeQuery($mlink);
        $mlink="logs?search=$mlink&log=mlog&file=last&limit=1&nocontext=";
-       $s.='<span class="positive">'.$gpc->{list}.'listed</span> added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age,0);
+       $s.='<span class="positive">'.$gpc->{list}.'listed</span> added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age);
       } else {
        $s.='<span class="negative">not '.$gpc->{list}.'listed</span>';
       }
@@ -888,7 +888,7 @@ sub webLists {
        $mlink="logs?search=$mlink&log=slog&file=last&limit=1&nocontext=";
        $s.='<div class="text">'.++$cnt.'. '.$ip;
        $s.=$ip eq ipNetwork($ip,24) ? ' range' : ' address';
-       $s.=' blocked=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> reason='.$name.' expires='.formatTimeInterval($expires,0).'</div>';
+       $s.=' blocked=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> reason='.$name.' expires='.formatTimeInterval($expires).'</div>';
       }
      }
     }
@@ -918,7 +918,7 @@ sub webLists {
        $mlink=~s/ *$//;
        $mlink=escapeQuery($mlink);
        $mlink="logs?search=$mlink&log=mlog&file=last&limit=1&nocontext=";
-       $s.='<div class="text">'.++$cnt.'. '.$adr.' added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age,0).'</div>';
+       $s.='<div class="text">'.++$cnt.'. '.$adr.' added=<a href="'.$mlink.'"><span style="font-weight: normal">'.$dat.'</span></a> age='.formatTimeInterval($age).'</div>';
       }
      }
      close $fh;
@@ -1399,7 +1399,7 @@ sub SMdone {
  my ($ch,$l)=@_;
  my $this=$Con{$ch};
  my $client=$this->{friend};
- doneSession($client,0) if $Con{$client}->{connected};
+ doneSession($client) if $Con{$client}->{connected};
 }
 
 sub webSimulate {
@@ -1747,10 +1747,10 @@ sub webLogs {
     }
     $s=join('',reverse @sary);
     $res='Found '.needEs($matches,' matching line','s').' for \''.$hpat.'\', searched in '.needEs($files,' log file','s').
-         ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t,0).'.';
+         ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t).'.';
    } else {
     $res='No results found for \''.$hpat.'\', searched in '.needEs($files,' log file','s').
-         ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t,0).'.';
+         ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t).'.';
    }
    return call('L3',addTooltips($res,$gpc->{nohighlight_m})); L3: $res=shift;
    return call('L4',addTooltips($s,$gpc->{nohighlight_m})); L4: $s=shift;
@@ -2207,18 +2207,18 @@ EOT
   if ($matches>0) {
    if ($pat) {
     $res.='Found '.needEs($matches,' matching file','s').' for \''.$hpat.'\', searched in '.$coll_desc.
-          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t,0).'.';
+          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t).'.';
    } else {
     $res.='Found '.needEs($matches,' file','s').' in '.$coll_desc.
-          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t,0).'.';
+          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t).'.';
    }
   } else {
    if ($pat) {
     $res.='No results found for \''.$hpat.'\', searched in '.$coll_desc.
-          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t,0).'.';
+          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t).'.';
    } else {
     $res.='No files found in '.$coll_desc.
-          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t,0).'.';
+          ' ('.$maxage_desc.'), search took '.formatTimeInterval(time-$t).'.';
    }
   }
   # cookie expiration date
@@ -2692,13 +2692,13 @@ sub configRender {
  my $html;
  my $counter=0;
  %ConfigChanged=();
- foreach my $c (@Config) {
-  my @tmp=@{$c};
-  if (@tmp==5) {
-   $html.=$c->[3]->(@tmp,"setupItem$counter");
+ foreach my $i (0..$#Config) {
+  my @tmp=@{$Config[$i]};
+  if (@tmp==1) {
+   $html.=heading(@tmp,"configItem$counter");
    $counter++;
   } else {
-   $html.=$c->[3]->(@tmp,$http,$gpc);
+   $html.=$Config[$i]->[3]->(@tmp,$i,$http,$gpc);
   }
  }
  chomp($html);
@@ -3241,8 +3241,8 @@ sub webStats {
   %tots=statsTotals();
   $upt=$t-$Stats{starttime};
   $upt2=$t-$AllStats{starttime};
-  $uptime=formatTimeInterval($upt,0);
-  $uptime2=formatTimeInterval($upt2,0);
+  $uptime=formatTimeInterval($upt);
+  $uptime2=formatTimeInterval($upt2);
   $mpd=sprintf("%.0f",$upt==0 ? 0 : 86400*$tots{msgProcessed}/$upt);
   $mpd2=sprintf("%.0f",$upt2==0 ? 0 : 86400*$tots{msgProcessed2}/$upt2);
   $pct=sprintf("%.1f",$tots{msgProcessed}-$Stats{locals}==0 ? 0 : 100*$tots{msgRejected}/($tots{msgProcessed}-$Stats{locals}));
@@ -4642,7 +4642,7 @@ EOT
 }
 
 sub textinput {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $value=encodeHTMLEntities($Config{$name});
  my $edit;
@@ -4650,7 +4650,6 @@ sub textinput {
   # the option list is actually saved in a file.
   $edit='<input type="button" value=" Edit file " onClick="popFileEditor(\''.escapeQuery($1).'\',1);">';
  }
- $name=~s/(e)(mail)/$1_$2/gi; # get rid of google autofill
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
  my $s="$Error$description";
  if ($s) {
@@ -4668,7 +4667,7 @@ EOT
               $nicename
             </div>
             <div class="optionValue$news">
-              <input name="$name" size="$size" value="$value" />$edit
+              <input name="$id" size="$size" value="$value" />$edit
             </div>
 $s
           </div>
@@ -4677,34 +4676,32 @@ EOT
 }
 
 sub RLIBTtextinput {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  if (RLIBTEventEnabled($name)) {
-  return textinput($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc);
+  return textinput($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc);
  } else {
  my $value=encodeHTMLEntities($Config{$name});
- $name=~s/(e)(mail)/$1_$2/gi; # get rid of google autofill
  return <<EOT;
-        <input type="hidden" name="$name" value="$value" />
+        <input type="hidden" name="$id" value="$value" />
 EOT
  }
 }
 
 sub Avtextinput {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  if (AvOptionEnabled($name)) {
-  return textinput($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc);
+  return textinput($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc);
  } else {
  my $value=encodeHTMLEntities($Config{$name});
- $name=~s/(e)(mail)/$1_$2/gi; # get rid of google autofill
  return <<EOT;
-        <input type="hidden" name="$name" value="$value" />
+        <input type="hidden" name="$id" value="$value" />
 EOT
  }
 }
 
 # everybody wants this, but I hate it -- use it if you care.
 sub passwdinput {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $value=encodeHTMLEntities($Config{$name});
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
@@ -4724,7 +4721,7 @@ EOT
               $nicename
             </div>
             <div class="optionValue$news">
-              <input type="password" name="$name" size="$size" value="$value" />
+              <input type="password" name="$id" size="$size" value="$value" />
             </div>
 $s
           </div>
@@ -4733,10 +4730,10 @@ EOT
 }
 
 sub checkbox {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
- my $s1='<input type="checkbox" name="'.$name.'" value="1"';
+ my $s1='<input type="checkbox" name="'.$id.'" value="1"';
  $s1.=' checked="checked"' if $Config{$name};
  $s1.=' />';
  my $s2="$Error$description";
@@ -4761,13 +4758,15 @@ EOT
 }
 
 sub checkbox2 {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
- foreach (@{$gpc->{$name.'[]'}}) { $gpc->{$name}+=$_; }
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
+ foreach my $v (@{$gpc->{$name.'[]'}}) {
+  $gpc->{$name}+=$v;
+ }
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
  my $s1;
  foreach my $v (sort {$a<=>$b} keys %$data) {
-  $s1.='<input type="checkbox" name="'.$name.'[]" value="'.encodeHTMLEntities($v).'"';
+  $s1.='<input type="checkbox" name="'.$id.'[]" value="'.encodeHTMLEntities($v).'"';
   if ($v & $Config{$name}) {
    $s1.=' checked="checked" /><b>'.encodeHTMLEntities($$data{$v});
    $s1.=encodeHTMLEntities(' (default)') if $v & $default;
@@ -4807,12 +4806,12 @@ EOT
 }
 
 sub radio {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
  my $s1;
  foreach my $v (sort {$a<=>$b} keys %$data) {
-  $s1.='              <input type="radio" name="'.$name.'" value="'.encodeHTMLEntities($v).'"';
+  $s1.='              <input type="radio" name="'.$id.'" value="'.encodeHTMLEntities($v).'"';
   if ($v eq $Config{$name}) {
    $s1.=' checked="checked" /><b>'.encodeHTMLEntities($$data{$v});
    $s1.=encodeHTMLEntities(' (default)') if $v eq $default;
@@ -4852,7 +4851,7 @@ EOT
 }
 
 sub option {
- my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$http,$gpc)=@_;
+ my ($name,$nicename,$size,$func,$default,$valid,$onchange,$description,$data,$id,$http,$gpc)=@_;
  my $Error=checkUpdate($name,$default,$valid,$onchange,$http,$gpc);
  my $news=$Config{ShowNews} && $News{$name} ? ' news' : '';
  my $s1;
@@ -4887,7 +4886,7 @@ EOT
               $Error
             </div>
             <div class="optionValue$news">
-              <select size="$size" name="$name">
+              <select size="$size" name="$id">
 $s1
               </select>
             </div>
@@ -4898,7 +4897,7 @@ EOT
 }
 
 sub heading {
- my ($description,$nodeId)=@_[4,5,6];
+ my ($description,$nodeId)=@_;
  return <<EOT;
       </div>
       <div onmousedown="toggleDisp('$nodeId')" class="contentHead">

@@ -282,6 +282,7 @@ sub formatMethod {
 
 sub formatTimeInterval {
  my ($interval,$method)=@_;
+ $method||=0;
  my ($res,$i);
  $res.=$i.'d ' if $i=formatMethod($interval,86400,$method);
  $res.=$i.'h ' if $i=formatMethod($interval,3600,$method);
