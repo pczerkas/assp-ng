@@ -40,7 +40,7 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
            'noBombScript' => 'NBSRE',
            'noAttachment' => 'NACRE',
            'noURIBL' => 'NURIBLRE');
-          
+
 %MakeIPRE=('ispip' => 'ISPRE',
            'allowAdminConnections' => 'AACRE',
            'acceptAllMail' => 'AMRE',
@@ -1317,7 +1317,7 @@ sub configCompileRe {
  '';
 }
 
-# this checks and corrects a | separated list 
+# this checks and corrects a | separated list
 # and handles the options in a file
 sub checkOptionList {
  my ($value,$name,$init)=@_;
