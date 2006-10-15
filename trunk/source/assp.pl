@@ -835,7 +835,7 @@ sub taskSMTPInTraffic {
     addTrafStats($ch,$len);
     $this->{bdata}-=$len if defined($this->{bdata});
     return call('L3',$this->{getline}->($ch,$str)); L3:
-    # it's possible that the connection can be deleted 
+    # it's possible that the connection can be deleted
     # while there's still something in the buffer
     last unless $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
    }
@@ -885,7 +885,7 @@ sub taskSMTPOutTraffic {
 }
 
 # connection timed out
-sub onSMTPtimeout {      
+sub onSMTPtimeout {
  my ($ch,$read)=@_;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
@@ -899,7 +899,7 @@ sub onSMTPtimeout {
 }
 
 # connection closed by peer
-sub onSMTPclose {      
+sub onSMTPclose {
  my $ch=shift;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
@@ -1121,7 +1121,7 @@ sub doneStats {
  $Con{$sh}->{prtimeServerSMTP}=0;
  $Con{$sh}->{pwtimeServerSMTP}=0;
 }
- 
+
 sub addSession {
  my $sh=shift;
  my $this=$Con{$sh};
@@ -1643,7 +1643,7 @@ sub preHeader {
    return;
   }
   $this->{indata}=1;
-  # don't check, only log RateLimited connection addressed 
+  # don't check, only log RateLimited connection addressed
   # to RateLimit Spamlovers, optimize checkRWL() position
   # for checkLine() and checkHeader()
   return call('L1',checkRateLimitBlock($ch,0,1,$this->{noprocessing})); L1:
@@ -1678,7 +1678,7 @@ sub npHeader {
   $this=$Con{$ch};
   return call('L1',checkVirus($ch,$l)) unless $this->{skipCheckVirus}; L1:
   $this->{header}.=$l;
-  $this->{maillength}+=length($l);  
+  $this->{maillength}+=length($l);
   checkLine($ch,$l) unless $this->{skipCheckLine};
   $done=$l=~/^\.?(?:\015\012)?$/;
   if ($done) {
@@ -1842,7 +1842,7 @@ sub getHeaderExec {
     $this->{skipCheckLine}=0;
    }
   }
-  if ($l=~/^\.(?:\015\012)?$/) {   
+  if ($l=~/^\.(?:\015\012)?$/) {
    return call('L10',getBodyDone($ch,1)); L10:
   } else {
    $this->{getline}=\&getBody;
@@ -3288,7 +3288,7 @@ sub checkRBL {
     ($received_rbl)=();
     $Stats{providerQueriesRBL}++;
     $time=Time::HiRes::time() if $AvailHiRes;
-    return call('L1',$rbl->lookup($ch,$ip)); L1:     
+    return call('L1',$rbl->lookup($ch,$ip)); L1:
     if ($AvailHiRes) {
      $time=Time::HiRes::time()-$time;
      $Stats{providerTimeRBL}+=$time;
@@ -4215,6 +4215,14 @@ sub taskForwardMail {
   $this->{header}=~s/^Return-Receipt-To$HeaderSepValueCRLFRe//gimo;
   # first remove the spamSubject from Subject: if it was added by us
   $this->{header}=~s/^Subject$HeaderSepRe$spamSubjectTagRE /Subject: /gim  if $sf && $spamSubject;
+  # add From: if missing
+  if ($this->{header}!~/^From$HeaderSepRe/imo) {
+   $this->{header}.="From: sender not supplied\015\012";
+  }
+  # add Subject: if missing
+  if ($this->{header}!~/^Subject$HeaderSepRe/imo) {
+   $this->{header}.="Subject: \015\012";
+  }
   # add ccBlockedSubject, ccSpamSubject or ccHamSubject to Subject:
   $sub=($sf & 4) ? $ccBlockedSubject : $sf ? $ccSpamSubject : $ccHamSubject;
   $sub=~s/TAG/$SubjectTags{$tag}/g;
@@ -6095,7 +6103,7 @@ sub restart {
 # corpus files cached hash
 # key: file name
 # value fields, separated by \003:
-#  mtime, subject, from, to, flags 
+#  mtime, subject, from, to, flags
 # flags is a 4-bits field:
 #  1st bit->'seen', 2nd bit->'file-moved', 3rd bit->'is-spam', 4th bit->'passed-message'
 #  if 3rd and 4th bits are both 0, the state of the message is unknown
@@ -6321,7 +6329,7 @@ sub checkReload {
   # we want to reload if a file is newer (has later date) than when read,
   # and is at least 120 seconds old -- in lieu of locking
   my $mtime=[stat($fn)]->[9];
-  return 1 if $mtime>$fileTimes{$fn} && time-$mtime>120;  
+  return 1 if $mtime>$fileTimes{$fn} && time-$mtime>120;
  }
  return 0;
 }
