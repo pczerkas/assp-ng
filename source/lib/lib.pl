@@ -47,13 +47,13 @@ $IPQuadRE=$IPQuadSectDotRE.'?'.$IPQuadSectDotRE.'?'.$IPQuadSectDotRE.'?'.$IPQuad
 # URI components
 $URICharRe='(?:[=%][0-9a-f]{2}|\#\&\d{1,3};?|[0-9a-z\-\_\.\@]|\=(?:\015?\012|\015))';
 
-# collection identifiers
-@Collections=('correctedspam',
-              'correctednotspam',
-              'notspamlog',
-              'incomingOkMail',
-              'spamlog',
-              'viruslog');
+# (config_name => [coll_isSpam,coll_factor])
+%CollectionOptions=('correctedspam' => [1,2],
+                    'correctednotspam' => [0,4],
+                    'notspamlog' => [0,1],
+                    'incomingOkMail' => [0,0],
+                    'spamlog' => [1,1],
+                    'viruslog' => [1,0]);
 
 # detect installed modules
 sub detectModules {
@@ -82,83 +82,83 @@ sub detectModules {
 
 # clean up source email
 sub clean {
- my $m=shift;
+ my ($h,$b)=@_;
  # clear out interfering headers
- $m=~s/^(?:Return-Path|Delivered-To|In-Reply-To|Message-ID|References|X-Assp-$HeaderNameRe|X-Intended-For)$HeaderSepValueCRLFRe//gimo;
+ $h=~s/^(?:Return-Path|Delivered-To|In-Reply-To|Message-ID|References|X-Assp-$HeaderNameRe|X-Intended-For)$HeaderSepValueCRLFRe//gimo;
  # parse helo
- my ($helo)=$m=~/helo=([^)]+)\)/i;
+ my ($helo)=$h=~/helo=([^)]+)\)/i;
  $helo=join(' hlo ',$helo=~/(\w+)/g) if length($helo)>19; # if the helo string is long, break it up
  $helo="hlo $helo";
  # received's may interfere with rcpt parsing, clear them out now
- $m=~s/^Received$HeaderSepValueCRLFRe//gimo;
+ $h=~s/^Received$HeaderSepValueCRLFRe//gimo;
  # parse rcpt's
- my $rcpt='rcpt '.join(' rcpt ',$m=~/($EmailAdrRe\@$EmailDomainRe)/go);
+ my $rcpt='rcpt '.join(' rcpt ',$h=~/($EmailAdrRe\@$EmailDomainRe)/go);
  # mark the subject
- my ($ssub)=$m=~/^$HeaderAllCRLFRe*Subject$HeaderSepRe($HeaderValueRe)/io;
- $ssub=decodeMimeWords($ssub);
+ my ($sub)=$h=~/^Subject$HeaderSepRe($HeaderValueRe)/imo;
+ $sub=decodeMimeWords($sub);
  # remove the spamSubject
- $ssub=~s/$spamSubjectTagRE //gi if $spamSubject;
+ $sub=~s/$spamSubjectTagRE //gi if $spamSubject;
  # remove the ccHamSubject
- $ssub=~s/$ccHamSubjectTagRE //gi if $ccHamSubject;
+ $sub=~s/$ccHamSubjectTagRE //gi if $ccHamSubject;
  # remove the ccSpamSubject
- $ssub=~s/$ccSpamSubjectTagRE //gi if $ccSpamSubject;
+ $sub=~s/$ccSpamSubjectTagRE //gi if $ccSpamSubject;
  # remove the ccBlockedSubject
- $ssub=~s/$ccBlockedSubjectTagRE //gi if $ccBlockedSubject;
- $ssub=fixsub($ssub);
- # strip out mime separators
+ $sub=~s/$ccBlockedSubjectTagRE //gi if $ccBlockedSubject;
+ $sub=fixsub($sub);
+ # gather mime separator boundaries
  my @bounds;
- push(@bounds,quotemeta($1)) while $m=~/^Content-Type$HeaderSepRe(?:$HeaderValueRe)boundary=\"(.*?)\"/gimo;
+ push(@bounds,quotemeta($1)) while $h=~/^Content-Type$HeaderSepRe(?:$HeaderValueRe)boundary=\"(.*?)\"/gimo;
+ push(@bounds,quotemeta($1)) while $b=~/^Content-Type$HeaderSepRe(?:$HeaderValueRe)boundary=\"(.*?)\"/gimo;
  if (@bounds) {
+  # strip out mime separators
   my $bounds=join('|',@bounds);
-  $m=~s/^--(?:$bounds)(?:--)?(?:\015\012)?//gim;
+  $b=~s/^--(?:$bounds)(?:--)?(?:\015\012)?//gim;
  }
- # remove header lines
- $m=~s/^$HeaderAllCRLFRe*//o;
  # replace &#ddd encoding
- $m=~s/&#(\d{1,3});?/chr($1)/ge;
+ $b=~s/&#(\d{1,3});?/chr($1)/ge;
  # replace base64 encoding
- $m=~s/\015\012([a-zA-Z0-9+\/=]{40,}\015\012[a-zA-Z0-9+\/=\015\012]+)/"\015\012".base64decode($1)/gse;
+ $b=~s/\015\012([a-zA-Z0-9+\/=]{40,}\015\012[a-zA-Z0-9+\/=\015\012]+)/"\015\012".base64decode($1)/gse;
  # clean up quoted-printable references
- $m=~s/=\015\012//g;
- $m=~s/=([0-9a-fA-F]{2})/pack('C',hex($1))/gie;
+ $b=~s/=\015\012//g;
+ $b=~s/=([0-9a-fA-F]{2})/pack('C',hex($1))/gie;
  # replace url encoding
- $m=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
+ $b=~s/%([0-9a-fA-F]{2})/pack('C',hex($1))/ge;
  # clean up &nbsp; and &amp;
- $m=~s/&nbsp;?/ /gi;
- $m=~s/&amp;?/and/gi;
- $m=~s/(\d),(\d)/$1$2/g;
- $m=~s/ *\015\012/\015\012/g;
- $m=~s/\015\012\015\012\015\012\015\012(?:\015\012)+/\015\012blines blines\015\012/g;
+ $b=~s/&nbsp;?/ /gi;
+ $b=~s/&amp;?/and/gi;
+ $b=~s/(\d),(\d)/$1$2/g;
+ $b=~s/ *\015\012/\015\012/g;
+ $b=~s/\015\012\015\012\015\012\015\012(?:\015\012)+/\015\012blines blines\015\012/g;
  # clean up html stuff
- $m=~s/<script.*?>\s*(?:<!\S*)?/ jscripttag jscripttag /gi;
- while ($m=~s/(\w+)(<[^>]*>)((?:<[^>]*>)*\w+)/$2$1$3/g) {} # move html out of words
- $m=~s/<(?:[biu]|strong)>/ boldifytext boldifytext /gi;
+ $b=~s/<script.*?>\s*(?:<!\S*)?/ jscripttag jscripttag /gi;
+ while ($b=~s/(\w+)(<[^>]*>)((?:<[^>]*>)*\w+)/$2$1$3/g) {} # move html out of words
+ $b=~s/<(?:[biu]|strong)>/ boldifytext boldifytext /gi;
  # remove some tags that are not informative
- $m=~s/<\/?(?:p|br|div|t[dr])[^>]*>/\015\012/gi;
- $m=~s/<\/(?:[biu]|font|strong)>//gi;
- $m=~s/<\/?(?:html|meta|head|body|span|o)[^>]*>//gi;
- $m=~s/(<a\s[^>]*>)(.*?)(<\s*\/a\s*>)/$1.fixlinktext($2).$3/gise;
- $m=~s/<\s*\/a\s*>//gi;
+ $b=~s/<\/?(?:p|br|div|t[dr])[^>]*>/\015\012/gi;
+ $b=~s/<\/(?:[biu]|font|strong)>//gi;
+ $b=~s/<\/?(?:html|meta|head|body|span|o)[^>]*>//gi;
+ $b=~s/(<a\s[^>]*>)(.*?)(<\s*\/a\s*>)/$1.fixlinktext($2).$3/gise;
+ $b=~s/<\s*\/a\s*>//gi;
  # treat titles like subjects
- $m=~s/<title[^>]*>(.*?)<\/title>/fixsub($1)/gie;
+ $b=~s/<title[^>]*>(.*?)<\/title>/fixsub($1)/gie;
  # remove style sheets
- $m=~s/<style[^>]*>.*?<\/style>//gis;
+ $b=~s/<style[^>]*>.*?<\/style>//gis;
  # remove html comments
- $m=~s/<!.*?-->//gs;
- $m=~s/<![^>]*>//g;
+ $b=~s/<!.*?-->//gs;
+ $b=~s/<![^>]*>//g;
  # look for random words
- $m=~s/[ a-z0-9][ghjklmnpqrstvwxz_]{2}[bcdfghjklmnpqrstvwxz_0-9]{3}\S*/ randword randword /gi;
+ $b=~s/[ a-z0-9][ghjklmnpqrstvwxz_]{2}[bcdfghjklmnpqrstvwxz_0-9]{3}\S*/ randword randword /gi;
  # look for linked images
- $m=~s/(<a[^>]*>[^<]*<img)/ linkedimage linkedimage $1/gis;
- $m=~s/<[^>]*href\s*=\s*("[^"]*"|\S*)/fixhref($1)/gise;
- $m=~s/https?:\/\/(\S*)/fixhref($1)/gise;
- $m=~s/(\S+\@\S*\.\w{2,3})\b/fixhref($1)/ge;
+ $b=~s/(<a[^>]*>[^<]*<img)/ linkedimage linkedimage $1/gis;
+ $b=~s/<[^>]*href\s*=\s*("[^"]*"|\S*)/fixhref($1)/gise;
+ $b=~s/https?:\/\/(\S*)/fixhref($1)/gise;
+ $b=~s/(\S+\@\S*\.\w{2,3})\b/fixhref($1)/ge;
  # remove headers from message body
- $m=~s/^$HeaderAllCRLFRe//gmo;
+ $b=~s/^$HeaderAllCRLFRe//gmo;
  # clean up whitespaces
- $m=~s/^\s*//gm;
- $m=~s/ {2,}/ /g;
- return "$helo\015\012$rcpt\015\012$ssub\015\012$m";
+ $b=~s/^\s*//gm;
+ $b=~s/ {2,}/ /g;
+ return "$helo\015\012$rcpt\015\012$sub\015\012$b";
 }
 
 sub fixhref {
@@ -641,12 +641,12 @@ sub flush {
   while (@l && $l[0] lt $k) {
    $v=$this->{updated}{$l[0]};
    print O "$l[0]\002$v\n" if $v;
-   shift(@l);
+   shift @l;
   }
   if ($l[0] eq $k) {
    $v=$this->{updated}{$l[0]};
    print O "$l[0]\002$v\n" if $v;
-   shift(@l);
+   shift @l;
   } else {
    print O $r;
   }
@@ -654,7 +654,7 @@ sub flush {
  while (@l) {
   $v=$this->{updated}{$l[0]};
   print O "$l[0]\002$v\n" if $v;
-  shift(@l);
+  shift @l;
  }
  close I;
  close O;

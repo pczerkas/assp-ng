@@ -15,8 +15,9 @@
   #                   Corpus Viewer, Tooltips, Simulator
   # Fritz Borgstedt - HELO and Sender Validation
 
-## use Strict;
-## use Warnings;
+## use strict;
+## use warnings;
+## no warnings qw/uninitialized once reserved/;
 
 $version='1.2.0';
 $modversion=' beta 0'; # appended in version display.
@@ -64,18 +65,19 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
 # 7 = spam folder & CC, 8 = spam folder,
 # 9 = discard & CC, 10 = discard,
 # 11 = virii folder & CC, 12 = virii folder
-%Collections=(1 => ['notspamlog',1],
-              2 => ['notspamlog',0],
-              3 => ['incomingOkMail',1],
-              4 => ['incomingOkMail',0],
-              5 => ['',1],
-              6 => ['',0],
-              7 => ['spamlog',1],
-              8 => ['spamlog',0],
-              9 => ['',1],
-              10 => ['',0],
-              11 => ['viruslog',1],
-              12 => ['viruslog',0]);
+# (option_id => [config_name,coll_isCC])
+%CollectModeOptions=(1 => ['notspamlog',1],
+                     2 => ['notspamlog',0],
+                     3 => ['incomingOkMail',1],
+                     4 => ['incomingOkMail',0],
+                     5 => ['',1],
+                     6 => ['',0],
+                     7 => ['spamlog',1],
+                     8 => ['spamlog',0],
+                     9 => ['',1],
+                     10 => ['',0],
+                     11 => ['viruslog',1],
+                     12 => ['viruslog',0]);
 
 # load from command line if specified
 if ($ARGV[0]) {
@@ -129,10 +131,10 @@ if ($ARGV[1]=~/^\d+$/) {
 # ->{spamfound} is a 3-bits flag used to signal if an email is determined to be spam
 # ->{noprocessing} is a 6-bits flag used to signal if an email is not to be processed
 # ->{maillength} is the length processed so far (we stop after $MaxBytes bytes)
-# ->{coll} is the field used for collecting
+# ->{collno} is the field used for collecting
 # ->{stats} is the field used for statistics
 # ->{tag} is the field used for subject tagging
-# ->{mlogbuf} is the field used for logging
+# ->{reason} is the field used for logging
 #
 # After connection the {getline} field functions like a state machine
 # redirecting input to subsequent handlers
@@ -146,7 +148,7 @@ if ($ARGV[1]=~/^\d+$/) {
 #
 # getLine looks for MAIL FROM, RCPT TO, RSET
 # getHeader looks for a blank line then tests for whitelist / spamaddresses
-# getBody looks for the . and calls checkSpam, the Bayesian spam test
+# getBody looks for the . and calls checkBayes
 # whiteBody waits for . and redirects client to server
 # sendError waits for . ignoring data from client (and finishes the maillog)
 #
@@ -160,6 +162,7 @@ if ($ARGV[1]=~/^\d+$/) {
 
 use IO::Socket;
 use Time::Local;
+use DB_File;
 
 main();
 # Never reached...(we hope)
@@ -340,7 +343,7 @@ sub initDirs {
  switchUsers($uid,$gid) if $runAsUser || $runAsGroup;
  # create folders if they're missing
  makeDirs($base,'bak');
- foreach my $c (@Collections) {
+ foreach my $c (keys %CollectionOptions) {
   makeDirs($base,${$c}) if ${$c};
  }
  foreach my $c (@Config) {
@@ -354,7 +357,7 @@ sub initDirs {
  }
  makeDirs($base,'data/reports');
  makeDirs($base,'data'); # for asspstats.sav
- my @dbs=('spamdb','whitelistdb','redlistdb','dnsbl','greylist','delaydb','ratelimitdb','corpusdb');
+ my @dbs=('bayesdb','whitelistdb','redlistdb','dnsbl','greylist','delaydb','ratelimitdb','corpusdb');
  foreach my $d (@dbs) {
   if (${$d}) {
    my ($dir)=${$d}=~/(.*[\\\/])/;
@@ -371,14 +374,14 @@ sub initDirs {
 }
 
 sub initTasks {
- newTask(taskOptionFilesReload(),'NORM','M');
- newTask(taskMaintenance(),'NORM','M');
- newTask(taskUploadStats(),'NORM','M');
- newTask(taskDownloadGrey(),'NORM','M');
+ newTask(taskReloadOptionFiles(),'IDLE','M');
+ newTask(taskMaintenance(),'IDLE','M');
+ newTask(taskUploadStats(),'IDLE','M');
+ newTask(taskDownloadGrey(),'IDLE','M');
  newTask(taskInitAv(),'IDLE','M') if !$AvUseClamAV && $AvDbs;
- newTask(taskReloadAv(),'NORM','M');
+ newTask(taskReloadAv(),'IDLE','M');
  newTask(taskServiceCheck(),'HIGH','M') if $AsAService;
- newTask(taskRestartEvery(),'NORM','M');
+ newTask(taskRestartEvery(),'IDLE','M');
  newTask(taskNewSMTPConnection($Lsn),'NORM','S') if $Lsn;
  newTask(taskNewWebConnection($WebSocket),'NORM','W') if $WebSocket;
  newTask(taskNewSMTPConnection($Lsn2),'NORM','S') if $Lsn2;
@@ -394,8 +397,8 @@ sub taskInitAv {
  }];
 }
 
-sub taskOptionFilesReload {
- return ['taskOptionFilesReload',sub{&jump;
+sub taskReloadOptionFiles {
+ return ['taskReloadOptionFiles',sub{&jump;
   while (1) {
    waitTaskDelay(0,60);
    return cede('L1'); L1:
@@ -469,7 +472,7 @@ sub taskStats {
   $prbytesRelaySMTP=$pwbytesRelaySMTP=$drbytesRelaySMTP=$dwbytesRelaySMTP=$prtimeRelaySMTP=$pwtimeRelaySMTP=$drtimeRelaySMTP=$dwtimeRelaySMTP=0;
   $prbytesSMTP=$pwbytesSMTP=$drbytesSMTP=$dwbytesSMTP=$prtimeSMTP=$pwtimeSMTP=$drtimeSMTP=$dwtimeSMTP=$rbytesSMTP=$wbytesSMTP=$rtimeSMTP=$wtimeSMTP=0;
   $kernel_calls=$kernel_time=$idle_time=$user_time=0;
-  ($cpuUsage,$cpuUsageKernel,$cpuUsageUser,$cpuUsageM,$cpuUsageS,$cpuUsageW)=($CanStatCPU ? 0 : 'n/a')x6;
+  $cpuUsage=$cpuUsageKernel=$cpuUsageUser=$cpuUsageM=$cpuUsageS=$cpuUsageW=$CanStatCPU ? 0 : 'n/a';
   while (1) {
    waitTaskDelay(0,5);
    return cede('L1'); L1:
@@ -657,7 +660,7 @@ sub taskNewSMTPConnection {
     $client->close();
     next;
    }
-   addfh($client,\&getLine,$server);
+   addfh($client,'getLine',$server);
    $this=$Con{$client};
    $this->{isClient}=1;
    $this->{isRelay}=($ch==$Relay);
@@ -666,23 +669,20 @@ sub taskNewSMTPConnection {
    $this->{mISPRE}=matchIP($ip,'ispip');
    $this->{mNLOGRE}=matchIP($ip,'noLog');
    $this->{mNRLRE}=matchIP($ip,'noRateLimit');
-   $this->{mAMRE}=matchIP($ip,'acceptAllMail');
-   if (ok2Relay($client) || $this->{isRelay}) {
-    $this->{relayok}=1;
-   }
+   $this->{relayok}=checkRelay($client);
    $tztime=$UseLocalTime ? localtime() : gmtime();
    $tz=$UseLocalTime ? tzStr() : '+0000';
    $tztime=~s/... (...) +(\d+) (........) (....)/$2 $1 $4 $3/;
    $this->{rcvd}="Received: from $ip ([$ip] helo=) by $myName; $tztime $tz\015\012";
    if ($sendNoopInfo) {
-    addfh($server,\&skipok,$client);
+    addfh($server,'skipok',$client);
     $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName";
    } else {
-    addfh($server,\&reply,$client);
+    addfh($server,'reply',$client);
    }
    $Con{$server}->{isServer}=1;
    $Con{$server}->{isRelay}=$this->{isRelay};
-   if ($this->{isRelay} || $this->{relayok} || $this->{mISPRE} || matchIP($ip,'noGreetDelay')) {
+   if ($this->{relayok} || $this->{mISPRE} || matchIP($ip,'noGreetDelay')) {
     $Con{$server}->{greetdelay}=-1;
    } else {
     suspendTask($Con{$client}->{itid}); # we want the \&reply sub to be called first (earlytalkers)
@@ -749,12 +749,12 @@ sub NewSimSMTPConnection {
  # check for updates each 60 seconds
  my $time=time;
  my $client=$ch; # accept()
- $server=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2); #todo
+ my $server=new IO::Socket::INET(Proto=>'tcp',PeerAddr=>$smtpDestination,Timeout=>2); #todo
  unless ($server) {
   mlog(0,"couldn't create server socket to $smtpDestination -- aborting SM connection");
   return;
  }
- addSimfh($client,\&getLine,$server,$ip,$port);
+ addSimfh($client,'getLine',$server,$ip,$port);
  my $this=$Con{$client};
  $this->{connected}=1;
  $this->{isClient}=1;
@@ -762,13 +762,12 @@ sub NewSimSMTPConnection {
  $this->{mISPRE}=matchIP($ip,'ispip');
  $this->{mNLOGRE}=matchIP($ip,'noLog');
  $this->{mNRLRE}=matchIP($ip,'noRateLimit');
- $this->{mAMRE}=matchIP($ip,'acceptAllMail');
- $this->{relayok}=1 if ok2Relay($client);
+ $this->{relayok}=checkRelay($client);
  my $tztime=$UseLocalTime ? localtime() : gmtime();
  my $tz=$UseLocalTime ? tzStr() : '+0000';
  $tztime=~s/... (...) +(\d+) (........) (....)/$2 $1 $4 $3/;
  $this->{rcvd}="Received: from $ip ([$ip] helo=) by $myName; $tztime $tz\015\012";
- addfh($server,\&SMhelo,$client);
+ addfh($server,'SMhelo',$client);
  if ($sendNoopInfo) {
   $Con{$server}->{noop}="NOOP Connection from: $ip, $tztime $tz relayed by $myName";
  }
@@ -799,7 +798,7 @@ sub taskSMTPInTraffic {
  my ($ch,$buf)=@_;
  my ($this,$friend,$timeout,$err,$len,$bn,$lbn,$str);
  return ['taskSMTPInTraffic',sub{&jump;
-  # note: $Con{$ch} may be deleted in $Con{$ch}->{getline}->() !!!
+  # note: $Con{$ch} may be deleted in &{$Con{$ch}->{getline}}() !!!
   $this=$Con{$ch};
   $friend=$this->{friend};
   while ($ch->opened()) {
@@ -808,46 +807,31 @@ sub taskSMTPInTraffic {
    unless (getTaskWaitResult(0)) {
     next unless $SMTPTimeout && $this->{active};
     # connection timed out
-    return if onSMTPtimeout($ch,1)<0;
-    last;
+    return call('L2',onSMTPtimeout($ch,1)); L2:
+    return;
    }
    unless ($ch->sysread($buf,$IncomingBufSize)>0) {
     # connection closed by peer
-    return if onSMTPclose($ch)<0;
-    last;
+    return call('L3',onSMTPclose($ch)); L3:
+    return;
    }
-   $this->{_}.=$buf;
-   # support for XEXCH50 thankyou Microsoft for making my life miserable
-   while ($this->{skipbytes}>0) {
-    $str=substr($this->{_},0,min($this->{skipbytes},$IncomingBufSize),''); # four-argument substr()
-    $len=length($str);
-    last unless $len;
-    addTrafStats($ch,$len);
-    $this->{skipbytes}-=$len;
-    # send the binary chunk on to the server
-    sendque($friend,$str);
-    return cede('L2',1); L2:
-   }
-   while (($bn=index($this->{_},"\015\012"))>=0) {
+   $this->{incoming}.=$buf;
+   while (($bn=index($this->{incoming},"\015\012"))>=0) {
     $bn+=2; # crlf length
-    $str=substr($this->{_},0,$bn,''); # four-argument substr()
+    $str=substr($this->{incoming},0,$bn,''); # four-argument substr()
     $len=length($str);
     addTrafStats($ch,$len);
-    $this->{bdata}-=$len if defined($this->{bdata});
-    return call('L3',$this->{getline}->($ch,$str)); L3:
+    return call('L5',&{$this->{getline}}($ch,$str)); L5:
     # it's possible that the connection can be deleted
     # while there's still something in the buffer
-    last unless $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
+    return unless exists $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
    }
-   # '$this' may be not valid -- check $Con{$ch} instead
-   if ($Con{$ch}) {
-    $len=length($this->{_});
-    if ($len>$MaxBytes) {
-     addTrafStats($ch,$len);
-     $this->{bdata}-=$len if defined($this->{bdata});
-     return call('L4',$this->{getline}->($ch,$this->{_})); L4:
-     $this->{_}='' if $Con{$ch}; # '$this' may be not valid -- check $Con{$ch} instead
-    }
+   $len=length($this->{incoming});
+   if ($len>$MaxBytes) {
+    # don't buffer excesive data
+    addTrafStats($ch,$len);
+    return call('L6',&{$this->{getline}}($ch,$this->{incoming})); L6:
+    $this->{incoming}='' if exists $Con{$ch}; # '$this' may be not valid -- check $Con{$ch} instead
    }
   }
  }];
@@ -865,15 +849,15 @@ sub taskSMTPOutTraffic {
    unless (getTaskWaitResult(0)) {
     next unless $SMTPTimeout;
     # connection timed out
-    return if onSMTPtimeout($ch)<0;
-    last;
+    return call('L2',onSMTPtimeout($ch)); L2:
+    return;
    }
    if (length($this->{outgoing})) {
     $written=syswrite($ch,$this->{outgoing},$OutgoingBufSize);
     unless ($written>0) {
      # connection closed by peer
-     return if onSMTPclose($ch)<0;
-     last;
+     return call('L3',onSMTPclose($ch)); L3:
+     return;
     }
     substr($this->{outgoing},0,$written,''); # four-argument substr()
     # test for highwater mark
@@ -886,35 +870,50 @@ sub taskSMTPOutTraffic {
 
 # connection timed out
 sub onSMTPtimeout {
- my ($ch,$read)=@_;
- my $this=$Con{$ch};
- my $sh=$this->{sh};
- return -1 if checkRateLimit($sh,'msgAborted',1)<0;
- my $err=$this->{isClient} ? 'client' : 'server';
- $err.=' '.($read ? 'read' : 'write')." timeout ($SMTPTimeout) -- dropping connection";
- mlogCond($sh,$err,1);
- $Con{$sh}->{stats}='msgAborted';
- sendError($sh,"($err)",1);
- return 0;
+ my ($ch,$read);
+ my ($this,$sh,$err);
+ my $sref=$Tasks{$CurTaskID}->{onSMTPtimeout}||=[sub{
+  ($ch,$read)=@_;
+ },sub{&jump;
+  $this=$Con{$ch};
+  $sh=$this->{sh};
+  return call('L1',checkRateLimit($sh,'msgAborted',1)); L1:
+  return -1 if (shift)<0;
+  $err=$this->{isClient} ? 'client' : 'server';
+  $err.=' '.($read ? 'read' : 'write')." timeout ($SMTPTimeout) -- dropping connection";
+  mlogCond($sh,$err,1);
+  $Con{$sh}->{stats}='msgAborted';
+  sendError($sh,"($err)",1);
+  return 0;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # connection closed by peer
 sub onSMTPclose {
- my $ch=shift;
- my $this=$Con{$ch};
- my $sh=$this->{sh};
- if ($Con{$sh}->{indata}) {
-  return -1 if checkRateLimit($sh,'msgAborted',1)<0;
-  my $err='connection closed unexpectedly by ';
-  $err.=$this->{isClient} ? 'client' : 'server';
-  mlogCond($sh,$err,1);
-  slog($ch,'('.needEs($Con{$sh}->{maillength},' byte','s')." received; $err)",0,'I');
-  doneStats($sh,0,'msgAborted');
- } else {
-  doneStats($sh,1);
- }
- doneSession($ch);
- return 0;
+ my $ch;
+ my ($this,$sh,$err);
+ my $sref=$Tasks{$CurTaskID}->{onSMTPclose}||=[sub{
+  $ch=shift;
+ },sub{&jump;
+  $this=$Con{$ch};
+  $sh=$this->{sh};
+  if ($Con{$sh}->{indata}) {
+   return call('L1',checkRateLimit($sh,'msgAborted',1)); L1:
+   return -1 if (shift)<0;
+   $err='unexpected connection close by '.($this->{isClient} ? 'client' : 'server');
+   mlogCond($sh,$err,1);
+   slog($ch,'('.needEs($Con{$sh}->{maillength},' byte','s')." received; $err)",0,'I');
+   doneStats($sh,0,'msgAborted');
+  } else {
+   doneStats($sh,1);
+  }
+  doneSession($ch);
+  return 0;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub addTrafStats {
@@ -1043,8 +1042,12 @@ sub doneStats {
  my $this=$Con{$ch};
  my $sh=$this->{sh};
  my $sess=$SMTPSessions{$sh};
- $this->{stats}=$stats if $stats;
- $stats=$this->{stats};
+ if ($stats) {
+  # override stats
+  $this->{stats}=$stats;
+ } else {
+  $stats=$this->{stats};
+ }
  $Stats{$stats}++ if $stats;
  unless ($this->{isRelay}) {
   if ($success) {
@@ -1122,6 +1125,25 @@ sub doneStats {
  $Con{$sh}->{pwtimeServerSMTP}=0;
 }
 
+# this protects from server timeout until we receive $MaxBytes of the message
+sub taskWatchSession {
+ my $sh=shift;
+ my ($this,$i);
+ return ['taskWatchSession',sub{&jump;
+  $this=$Con{$sh};
+  return unless $this->{isClient}; # watch only client's sessions
+  while (1) {
+   waitTaskDelay(0,30);
+   return cede('L1'); L1:
+   next unless $this->{indata}; # start protecting when in DATA
+   last if $this->{inpass}; # data passed to server, no more need to protect
+   $i++;
+   sendque($this->{friend},"X-Assp-TimeoutProtection: $i\015\012"); # !turn,!slog
+   slog($sh,"(protecting from server timeout: $i)",1,'I');
+  }
+ }];
+}
+
 sub addSession {
  my $sh=shift;
  my $this=$Con{$sh};
@@ -1155,6 +1177,7 @@ sub addSession {
  $sess->{lminServerSMTP}=0;     # server latency min
  $sess->{lmaxServerSMTP}=0;     # server latency max
  $SMTPipSessions{ipNetwork($ip,24)}++;
+ $sess->{wtid}=newTask(taskWatchSession($sh),'NORM','S');
 }
 
 # done with a file handle -- close him and his friend(s)
@@ -1164,6 +1187,8 @@ sub doneSession {
  my $friend=$this->{friend};
  my $sh=$this->{sh};
  my $sess=$SMTPSessions{$sh};
+ # end session watcher task
+ doneTask($sess->{wtid});
  # close connections
  doneConnection($ch,$by);
  doneConnection($friend,1);
@@ -1215,7 +1240,7 @@ sub doneSession {
  unless ($Con{$sh}->{simulating}) {
   # dump session to slogfile
   dumpSlog($sh);
-  # remove SMTP session
+  # delete SMTP session
   delete $SMTPSessions{$sh};
   # delete the Connection data
   delete $Con{$friend};
@@ -1310,10 +1335,10 @@ sub sendque {
 }
 
 sub sayque {
- my ($ch,$message)=@_;
+ my ($ch,$message,$noturn)=@_;
  $message=~s/\015?\012|\015//g;
  $message.="\015\012";
- sendque($ch,$message,1,1);
+ sendque($ch,$message,!$noturn,1);
 }
 
 #####################################################################################
@@ -1323,13 +1348,14 @@ sub sayque {
 sub stateReset {
  my $ch=shift;
  my $this=$Con{$ch};
- $this->{getline}=\&getLine;
+ $this->{getline}='getLine';
  $this->{mailfrom}=$this->{rcpt}=$this->{header}=$this->{myheader}=$this->{body}='';
- $this->{stats}=$this->{tag}=$this->{error}=$this->{mlogbuf}=$this->{checkedattach}='';
+ $this->{stats}=$this->{tag}=$this->{error}='';
+ $this->{reason}='message ok';
  $this->{isbounce}=$this->{invalidSRSBounce}=0;
  $this->{delayed}=$this->{spamfound}=0;
- $this->{inmailfrom}=$this->{indata}=$this->{inerror}=0;
- $this->{coll}=$this->{maillength}=$this->{spamprob}=0;
+ $this->{inmailfrom}=$this->{inrcptto}=$this->{indata}=$this->{inpass}=$this->{inerror}=0;
+ $this->{collno}=$this->{maillength}=$this->{spamprob}=0;
  $this->{mailfromlocal}=$this->{white}=$this->{red}=0;
  $this->{noprocessing}=2; # clear this later if !noprocessing
  # clear these later if !spamLover
@@ -1342,6 +1368,7 @@ sub stateReset {
  #  delete $this->{RWLcache};
  #  delete $this->{RBLcache};
  #  delete $this->{Helocache};
+ #  delete $this->{Relaycache};
  # per message test-result caches, dont reuse
  delete $this->{Sendercache};
  delete $this->{SPFcache};
@@ -1350,7 +1377,7 @@ sub stateReset {
 # a line of input has been received from the smtp client
 sub getLine {
  my ($ch,$l);
- my ($this,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply,$np);
+ my ($this,$tf,$srs,$e,$u,$h,$RO_e,$ec,$tt,$tt2,$rcptlocal,$rcptlocaladdress,$err,$reply);
  my $sref=$Tasks{$CurTaskID}->{getLine}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
@@ -1361,7 +1388,7 @@ sub getLine {
    delayWhiteExpire($ch);
    mlogCond($ch,"invalid character",1);
    sayque($ch,'553 Invalid character');
-   checkMaxErrors($ch,'',1)<0;
+   return call('L1',checkMaxErrors($ch,'',1)); L1:
    return;
   }
   if ($l=~/^ *(?:helo|ehlo) .*?([^<>,;"'\(\)\s]+)/i) {
@@ -1370,9 +1397,8 @@ sub getLine {
    # early (pre-mailfrom) checks
    return call('L2',checkHelo($ch,1)); L2:
    return if (shift)<0;
-   return if checkNonLate($ch)<0;
-   # for testing
-   if ($this->{isRelay}) { $l=~s/\Q$this->{helo}\E/$myName/; } else { $l=~s/\Q$this->{helo}\E/$myName\.[$this->{ip}]/; }
+   return call('L3',checkNonLate($ch)); L3:
+   return if (shift)<0;
   } elsif ($l=~/mail from:\s*<?($EmailAdrRe\@$EmailDomainRe|\s*)>?/io) {
    $this->{mailfrom}=$1;
    $this->{inmailfrom}=1;
@@ -1381,18 +1407,19 @@ sub getLine {
    $this->{mNMVRE}=matchSLIP($this->{mailfrom},$this->{ip},'noMsgVerify');
    $this->{mNBSRE}=matchSL($this->{mailfrom},'noBombScript');
    $this->{isbounce}=$this->{mailfrom}=~$BSRE;
+   $this->{relayok}=checkRelay($ch);
    checkWhitelist($ch);
    # early (pre-rcpt) checks
-   $np=$this->{noprocessing} & 1;
-   return call('L3',checkRateLimitBlock($ch,3,0,$np)); L3:
+   return call('L4',checkRateLimitBlock($ch,3)); L4:
    return if (shift)<0;
-   return call('L5',checkHelo($ch,2,0,$np)); L5:
+   return call('L5',checkHelo($ch,2)); L5:
    return if (shift)<0;
-   return call('L7',checkSender($ch,1,0,$np)); L7:
+   return call('L6',checkSender($ch,1)); L6:
    return if (shift)<0;
-   return call('L9',checkSPF($ch,1,0,$np)); L9:
-   return call('L11',checkRBL($ch,3,0,$np)); L11:
-   return if checkNonLate($ch)<0;
+   return call('L7',checkSPF($ch,1)); L7:
+   return call('L8',checkRBL($ch,3)); L8:
+   return call('L9',checkNonLate($ch)); L9:
+   return if (shift)<0;
    # rewrite sender address when relaying through Relay Host
    if ($CanUseSRS && $EnableSRS && $this->{isRelay} && !$this->{isbounce} && !(matchSL($this->{mailfrom},'noSRS'))) {
     ($tf)=();
@@ -1405,12 +1432,9 @@ sub getLine {
      $l=~s/\Q$this->{mailfrom}\E/$tf/;
     }
    }
-   # for testing
-   unless ($this->{isRelay}) {
-    $this->{relayok}=($this->{relayok} && $this->{mailfrom} eq '') || $this->{mailfromlocal};
-   }
   } elsif ($l=~/rcpt to: *(.*)/i) {
    $e=$1;
+   $this->{inrcptto}=1;
    ($u,$h)=();
    # enforce valid email address pattern
    if ($CanUseAddress && $DoRFC822) {
@@ -1419,65 +1443,60 @@ sub getLine {
      if (!Email::Valid->address($RO_e)) {
       # couldn't understand recipient
       delayWhiteExpire($ch);
-      return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
+      return call('L10',checkRateLimit($ch,'rcptRelayRejected',1)); L10:
+      return if (shift)<0;
       mlogCond($ch,"malformed address: '$RO_e'",1);
       sayque($ch,"553 Malformed address: $RO_e");
-      checkMaxErrors($ch,'rcptRelayRejected',0,1);
+      return call('L11',checkMaxErrors($ch,'rcptRelayRejected',0,1)); L11:
       return;
      }
     }
    }
    if ($CanUseSRS && $EnableSRS) {
     ($ec)=$e=~/^<?([^\015\012>]*).*/;
-    if (!$this->{isRelay} && $this->{isbounce}) {
-     unless (matchSL($ec,'noSRS')) {
-      # validate incoming bounces
-      ($tt,$tt2)=();
-      $srs=new Mail::SRS(Secret=>$SRSSecretKey,
-                         MaxAge=>$SRSTimestampMaxAge,
-                         HashLength=>$SRSHashLength,
-                         AlwaysRewrite=>1);
-      if ($ec=~/^SRS0[=+-].*/i) {
-       if (eval{$tt=$srs->reverse($ec)}) {
-        $l=~s/\Q$ec\E/$tt/;
-        $e=<$tt>;
+    unless ($this->{isRelay} || matchSL($ec,'noSRS')) {
+     # validate incoming bounces
+     ($tt,$tt2)=();
+     $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                        MaxAge=>$SRSTimestampMaxAge,
+                        HashLength=>$SRSHashLength,
+                        AlwaysRewrite=>1);
+     if ($ec=~/^SRS0[=+-].*/i) {
+      if (eval{$tt=$srs->reverse($ec)}) {
+       $l=~s/\Q$ec\E/$tt/;
+       $e=<$tt>;
+      } else {
+       $this->{invalidSRSBounce}=1;
+      }
+     } elsif ($ec=~/^SRS1[=+-].*/i) {
+      if (eval{$tt=$srs->reverse($ec)}) {
+       if (eval{$tt2=$srs->reverse($tt)}) {
+        $l=~s/\Q$ec\E/$tt2/;
+        $e=<$tt2>;
        } else {
-        $this->{invalidSRSBounce}=1;
-       }
-      } elsif ($ec=~/^SRS1[=+-].*/i) {
-       if (eval{$tt=$srs->reverse($ec)}) {
-        if (eval{$tt2=$srs->reverse($tt)}) {
-         $l=~s/\Q$ec\E/$tt2/;
-         $e=<$tt2>;
-        } else {
-         return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
-         mlogCond($ch,"user not local; please try <$tt> directly",1);
-         sayque($ch,"551 5.7.1 User not local; please try <$tt> directly");
-         checkMaxErrors($ch,'rcptRelayRejected',1);
-         return;
-        }
-       } else {
-        $this->{invalidSRSBounce}=1;
+        return call('L12',checkRateLimit($ch,'rcptRelayRejected',1)); L12:
+        return if (shift)<0;
+        mlogCond($ch,"user not local; please try <$tt> directly",1);
+        sayque($ch,"551 5.7.1 User not local; please try <$tt> directly");
+        return call('L13',checkMaxErrors($ch,'rcptRelayRejected',1)); L13:
+        return;
        }
       } else {
        $this->{invalidSRSBounce}=1;
       }
+     } elsif ($this->{isbounce}) {
+      $this->{invalidSRSBounce}=1;
      }
-    } elsif (!$this->{isRelay} && $ec=~/^SRS[01][=+-].*/i) {
-     return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
-     mlogCond($ch,"SRS only supported in DSN: $e",1);
-     sayque($ch,'550 5.7.6 SRS only supported in DSN');
-     checkMaxErrors($ch,'rcptRelayRejected',1);
-     return;
     }
    }
    if ($e=~/[\!\%\@]\S*\@/) {
     # blatent attempt at relaying
     delayWhiteExpire($ch);
-    return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
+    return call('L16',checkRateLimit($ch,'rcptRelayRejected',1)); L16:
+    return if (shift)<0;
     mlogCond($ch,"relay attempt blocked for (evil): $e",1);
     sayque($ch,$NoRelaying);
-    checkMaxErrors($ch,'rcptRelayRejected',0,1);
+    return call('L17',checkMaxErrors($ch,'rcptRelayRejected',0,1)); L17:
     return;
    } elsif ($e=~/([a-z\-_\.]+)!([a-z\-_\.]+)$/i) {
     # someone give me one good reason why I should support bang paths! grumble...
@@ -1491,19 +1510,21 @@ sub getLine {
    } else {
     # couldn't understand recipient
     delayWhiteExpire($ch);
-    return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
+    return call('L18',checkRateLimit($ch,'rcptRelayRejected',1)); L18:
+    return if (shift)<0;
     mlogCond($ch,"relay attempt blocked for (parsing): $e",1);
     sayque($ch,$NoRelaying);
-    checkMaxErrors($ch,'rcptRelayRejected',0,1);
+    return call('L19',checkMaxErrors($ch,'rcptRelayRejected',0,1)); L19:
     return;
    }
    $rcptlocal=localMailDomain($h);
-   if (!$this->{relayok} && (!$rcptlocal || ($u.$h)=~/\%/) || $u =~/\@\w+/) {
+   if (!$this->{relayok} && (!$rcptlocal || ($u.$h)=~/\%/) || $u=~/\@\w+/) {
     delayWhiteExpire($ch);
-    return if checkRateLimit($ch,'rcptRelayRejected',1)<0;
+    return call('L20',checkRateLimit($ch,'rcptRelayRejected',1)); L20:
+    return if (shift)<0;
     mlogCond($ch,"relay attempt blocked for: $u$h",1);
     sayque($ch,$NoRelaying);
-    checkMaxErrors($ch,'rcptRelayRejected',0,1);
+    return call('L21',checkMaxErrors($ch,'rcptRelayRejected',0,1)); L21:
     return;
    }
    $rcptlocaladdress=0;
@@ -1522,102 +1543,109 @@ sub getLine {
    $this->{noprocessing}&=255-2 unless ($this->{noprocessing} & 2) && matchSL("$u$h",'noProcessing');
    $this->{addressedToSpamBucket}=1 if $rcptlocal && matchSL("$u$h",'spamaddresses');
    checkSpamLover($ch,"$u$h",$rcptlocal);
-   return if checkEmailInterface($ch,$u,$rcptlocal)<0;
+   return call('L22',checkEmailInterface($ch,$u,$rcptlocal)); L22:
+   return if (shift)<0;
    # normal (pre-data) checks
-   $np=$this->{noprocessing} & 3;
-   return call('L12',checkRateLimitBlock($ch,4,1,$np)); L12:
+   return call('L23',checkRateLimitBlock($ch,4)); L23:
    return if (shift)<0;
-   return call('L14',checkHelo($ch,3,1,$np)); L14:
+   return call('L24',checkHelo($ch,3)); L24:
    return if (shift)<0;
-   return call('L16',checkSender($ch,2,1,$np)); L16:
+   return call('L25',checkSender($ch,2)); L25:
    return if (shift)<0;
-   return call('L18',checkSPF($ch,2,1,$np)); L18:
-   return call('L20',checkRBL($ch,4,1,$np)); L20:
-   return if checkNonLate($ch,1)<0; ## ,1 fixme ??
+   return call('L26',checkSPF($ch,2)); L26:
+   return call('L27',checkRBL($ch,4)); L27:
+   return call('L28',checkNonLate($ch)); L28:
+   return if (shift)<0;
    $this->{rcptValidated}=0;
    if ($this->{addressedToSpamBucket}) {
     # accept SpamBucket addresses in every case
     $this->{rcpt}.="$u$h ";
    } elsif ($LocalAddresses_Flat || $DoLDAP) {
     if ($rcptlocaladdress || $this->{relayok} && !$rcptlocal) {
-     return if checkDelaying($ch,"$u$h")<0;
+     return call('L29',checkDelaying($ch,"$u$h")); L29:
+     return if (shift)<0;
      mlogCond($ch,"recipient accepted: $u$h",$RecipientValLog);
      $this->{rcpt}.="$u$h ";
      $this->{rcptValidated}=1;
     } else {
-     return if checkRateLimit($ch,'rcptNonexistent',1,1)<0;
+     return call('L30',checkRateLimit($ch,'rcptNonexistent',1)); L30:
+     return if (shift)<0;
      $err="nonexistent address rejected: $u$h";
      mlogCond($ch,$err,$RecipientValLog);
      slog($ch,"($err)",0,'I');
      $reply=$InvalidRecipientError ? $InvalidRecipientError : '550 5.1.1 User unknown';
      $reply=~s/EMAILADDRESS/$u$h/g;
      sayque($ch,$reply);
-     checkMaxErrors($ch,'rcptNonexistent',1,1);
+     return call('L31',checkMaxErrors($ch,'rcptNonexistent',1,1)); L31:
      return;
     }
    } else {
-    return if checkDelaying($ch,"$u$h")<0;
+    return call('L32',checkDelaying($ch,"$u$h")); L32:
+    return if (shift)<0;
     mlogCond($ch,"recipient accepted unchecked: $u$h",$RecipientValLog);
     $this->{rcpt}.="$u$h ";
    }
    # update Stats
-   if ($this->{noprocessing}) {
-    return if checkRateLimit($ch,'rcptUnprocessed',0,1)<0;
+   if (checkNoprocessing($ch)) {
+    return call('L33',checkRateLimit($ch,'rcptUnprocessed')); L33:
+    return if (shift)<0;
     $Stats{rcptUnprocessed}++;
    } elsif ($this->{addressedToSpamBucket}) {
-    return if checkRateLimit($ch,'rcptSpamBucket',0,1)<0;
+    return call('L34',checkRateLimit($ch,'rcptSpamBucket')); L34:
+    return if (shift)<0;
     $Stats{rcptSpamBucket}++;
    } elsif ($this->{allLoveSpam}) {
-    return if checkRateLimit($ch,'rcptSpamLover',0,1)<0;
+    return call('L35',checkRateLimit($ch,'rcptSpamLover')); L35:
+    return if (shift)<0;
     $Stats{rcptSpamLover}++;
    } elsif ($rcptlocal) {
     if ($this->{rcptValidated}) {
-     return if checkRateLimit($ch,'rcptValidated',0,1)<0;
+     return call('L36',checkRateLimit($ch,'rcptValidated')); L36:
+     return if (shift)<0;
      $Stats{rcptValidated}++;
     } else {
-     return if checkRateLimit($ch,'rcptUnchecked',0,1)<0;
+     return call('L37',checkRateLimit($ch,'rcptUnchecked')); L37:
+     return if (shift)<0;
      $Stats{rcptUnchecked}++;
     }
    } elsif ($Whitelist{lc "$u$h"}) {
-    return if checkRateLimit($ch,'rcptWhitelisted',0,1)<0;
+    return call('L38',checkRateLimit($ch,'rcptWhitelisted')); L38:
+    return if (shift)<0;
     $Stats{rcptWhitelisted}++;
    } else {
-    return if checkRateLimit($ch,'rcptNotWhitelisted',0,1)<0;
+    return call('L39',checkRateLimit($ch,'rcptNotWhitelisted')); L39:
+    return if (shift)<0;
     $Stats{rcptNotWhitelisted}++;
    }
-  } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-   $this->{skipbytes}=$1;
-  } elsif ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
-   if ($1) {
-    $this->{bdata}=$1;
-   } else {
-    delete $this->{bdata};
-   }
+  } elsif ($l=~/^ *DATA/i) {
    $this->{rcpt}=~s/\s$//;
    # drop line if no recipients left
    if ($this->{rcpt}!~/@/) {
     # possible workaround for GroupWise bug
     if ($this->{delayed}) {
-     return if checkRateLimit($ch,'msgDelayed',1,1)<0;
+     return call('L40',checkRateLimit($ch,'msgDelayed',1)); L40:
+     return if (shift)<0;
      mlogCond($ch,'DATA phase delayed',$DelayLog);
      sayque($ch,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
      doneStats($ch,0,'msgDelayed');
      return;
     }
     delayWhiteExpire($ch);
-    return if checkRateLimit($ch,'msgNoRcpt',1,1)<0;
+    return call('L41',checkRateLimit($ch,'msgNoRcpt',1)); L41:
+    return if (shift)<0;
     mlogCond($ch,'no recipients left -- dropping connection',1);
     sendError($ch,'503 5.5.2 Need Recipient',0,'msgNoRcpt');
     return;
    }
    if (!$this->{isRelay} && $this->{isbounce} && $this->{delayed}) {
-    return if checkRateLimit($ch,'msgDelayed',1,1)<0;
+    return call('L42',checkRateLimit($ch,'msgDelayed',1)); L42:
+    return if (shift)<0;
     mlogCond($ch,'bounce delayed',1);
     sayque($ch,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
     doneStats($ch,0,'msgDelayed');
     return;
    } else {
-    $this->{getline}=\&preHeader;
+    $this->{getline}='preHeader';
    }
   } elsif ($l=~/^ *RSET/i) {
    stateReset($ch);
@@ -1643,26 +1671,17 @@ sub preHeader {
    return;
   }
   $this->{indata}=1;
-  # don't check, only log RateLimited connection addressed
+  # don't check (return), only log RateLimited connection addressed
   # to RateLimit Spamlovers, optimize checkRWL() position
   # for checkLine() and checkHeader()
-  return call('L1',checkRateLimitBlock($ch,0,1,$this->{noprocessing})); L1:
-  return if (shift)<0;
-  $this->{skipCheckLine}=1;
-  if (needMsgVerify($ch)) {
-   return call('L2',needExtraCheck($ch,$MsgVerifyExtra,$this->{noprocessing},$this->{white})); L2:
-   $this->{skipCheckLine}=0 if (shift);
-  }
+  return call('L1',checkRateLimitBlock($ch)); L1: # pos not set deliberately
+  return call('L2',needMsgVerify($ch,$this->{white})); L2:
+  $this->{skipCheckVirus}=1 if $this->{isRelay} || !$Avlocal && $this->{mailfromlocal};
   # prepare ClamAV STREAM connection
-  return call('L3',prepareClamAV($ch)); L3:
-  if ($this->{noprocessing}) {
-   $this->{getline}=\&npHeader;
-  } else {
-   $this->{getline}=\&getHeader;
-  }
-  $sh=$this->{sh};
+  return call('L3',prepareClamAV($ch)) unless $this->{skipCheckVirus}; L3:
+  $this->{getline}=checkNoprocessing($ch) ? 'npHeader' : 'getHeader';
   # conduct late (post-header) checks
-  return call('L4',$this->{getline}->($ch,$l)); L4:
+  return call('L4',&{$this->{getline}}($ch,$l)); L4:
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -1715,7 +1734,7 @@ sub getHeader {
     }
    }
    ($onwl)=();
-   unless ($this->{noprocessing}) {
+   unless (checkNoprocessing($ch)) {
     return call('L2',checkRWL($ch)); L2:
     if (($onwl=checkWhitelist($ch)) && $npLwlRe) {
      if ($this->{header}=~$npLwlReRE) {
@@ -1727,7 +1746,7 @@ sub getHeader {
      }
     }
    }
-   if ($this->{noprocessing}) {
+   if (checkNoprocessing($ch)) {
     return call('L3',npHeaderExec($ch,$l)); L3:
    } elsif ($onwl || $this->{rwlok}) {
     return call('L4',wlHeaderExec($ch,$l)); L4:
@@ -1751,6 +1770,18 @@ sub splitFix {
  $all++ while $this->{header}=~/\015?\012|\015/g;
  $this->{header}=~s/\015?\012|\015/\015\012/g if $all>2*$good;
  $this->{header}.="\015\012" if $this->{header};
+ # rewrite notification headers (MDN's) when relaying through Relay Host
+ if ($CanUseSRS && $EnableSRS && $this->{isRelay} && !$this->{isbounce} && !(matchSL($this->{mailfrom},'noSRS'))) {
+  my $tf;
+  my $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                        MaxAge=>$SRSTimestampMaxAge,
+                        HashLength=>$SRSHashLength,
+                        AlwaysRewrite=>1);
+  if (!eval{$tf=$srs->reverse($this->{mailfrom})} &&
+       eval{$tf=$srs->forward($this->{mailfrom},$SRSAliasDomain)}) {
+   $this->{header}=~s/^((?:Disposition-Notification-To|Return-Receipt-To)$HeaderSepValueRe)\Q$this->{mailfrom}\E/$1$tf/gimo;
+  }
+ }
 }
 
 sub npHeaderExec {
@@ -1761,24 +1792,18 @@ sub npHeaderExec {
  },sub{&jump;
   $this=$Con{$ch};
   # late (post-header) checks
-  return call('L2',checkHelo($ch,4,1,1)); L2:
+  return call('L1',checkHelo($ch,4)); L1:
   return if (shift)<0;
-  return call('L4',checkSender($ch,3,1,1)); L4:
+  return call('L2',checkSender($ch,3)); L2:
   return if (shift)<0;
-  return call('L6',checkSPF($ch,3,1,1)); L6:
-  return call('L8',checkRBL($ch,5,1,1)); L8:
-  $this->{skipCheckLine}=1;
-  if (needMsgVerify($ch)) {
-   return call('L9',needExtraCheck($ch,$MsgVerifyExtra,1)); L9:
-   if (shift) {
-    checkHeader($ch);
-    $this->{skipCheckLine}=0;
-   }
-  }
+  return call('L3',checkSPF($ch,3)); L3:
+  return call('L4',checkRBL($ch,5)); L4:
+  return call('L5',needMsgVerify($ch)); L5:
+  checkHeader($ch) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L10',npBodyDone($ch,1)); L10:
+   return call('L6',npBodyDone($ch,1)); L6:
   } else {
-   $this->{getline}=\&npBody;
+   $this->{getline}='npBody';
   }
  }];
  &{$sref->[0]};
@@ -1793,24 +1818,18 @@ sub wlHeaderExec {
  },sub{&jump;
   $this=$Con{$ch};
   # late (post-header) checks
-  return call('L2',checkHelo($ch,4,1)); L2:
+  return call('L1',checkHelo($ch,4)); L1:
   return if (shift)<0;
-  return call('L4',checkSender($ch,3,1)); L4:
+  return call('L2',checkSender($ch,3)); L2:
   return if (shift)<0;
-  return call('L6',checkSPF($ch,3,1)); L6:
-  return call('L8',checkRBL($ch,5,1)); L8:
-  $this->{skipCheckLine}=1;
-  if (needMsgVerify($ch)) {
-   return call('L9',needExtraCheck($ch,$MsgVerifyExtra,0,1)); L9:
-   if (shift) {
-    checkHeader($ch);
-    $this->{skipCheckLine}=0;
-   }
-  }
+  return call('L3',checkSPF($ch,3)); L3:
+  return call('L4',checkRBL($ch,5)); L4:
+  return call('L5',needMsgVerify($ch,1)); L5:
+  checkHeader($ch) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L10',whiteBodyDone($ch,1)); L10:
+   return call('L6',whiteBodyDone($ch,1)); L6:
   } else {
-   $this->{getline}=\&whiteBody;
+   $this->{getline}='whiteBody';
   }
  }];
  &{$sref->[0]};
@@ -1826,26 +1845,20 @@ sub getHeaderExec {
   $this=$Con{$ch};
   # late (post-header) checks
   checkBlacklist($ch);
-  return call('L2',checkHelo($ch,4,1)); L2:
+  return call('L1',checkHelo($ch,4)); L1:
   return if (shift)<0;
-  return call('L4',checkSender($ch,3,1)); L4:
+  return call('L2',checkSender($ch,3)); L2:
   return if (shift)<0;
   checkSpamBucket($ch);
   checkSRSBounce($ch);
-  return call('L6',checkSPF($ch,3,1)); L6:
-  return call('L8',checkRBL($ch,5,1)); L8:
-  $this->{skipCheckLine}=1;
-  if (needMsgVerify($ch)) {
-   return call('L9',needExtraCheck($ch,$MsgVerifyExtra)); L9:
-   if (shift) {
-    checkHeader($ch);
-    $this->{skipCheckLine}=0;
-   }
-  }
+  return call('L3',checkSPF($ch,3)); L3:
+  return call('L4',checkRBL($ch,5)); L4:
+  return call('L5',needMsgVerify($ch)); L5:
+  checkHeader($ch) if (shift);
   if ($l=~/^\.(?:\015\012)?$/) {
-   return call('L10',getBodyDone($ch,1)); L10:
+   return call('L6',getBodyDone($ch,1)); L6:
   } else {
-   $this->{getline}=\&getBody;
+   $this->{getline}='getBody';
   }
  }];
  &{$sref->[0]};
@@ -1863,18 +1876,18 @@ sub npBody {
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
   checkLine($ch,$l) unless $this->{skipCheckLine};
-  $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
+  $done=$l=~/^\.(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
-   # late (post-body) checks
-   return call('L3',checkHelo($ch,5,1,1)); L3:
+   # late (post-maxbytes) checks
+   return call('L2',checkHelo($ch,5)); L2:
    return if (shift)<0;
-   return call('L5',checkSender($ch,4,1,1)); L5:
+   return call('L3',checkSender($ch,4)); L3:
    return if (shift)<0;
-   return call('L7',checkSPF($ch,4,1,1)); L7:
-   return call('L9',checkRBL($ch,6,1,1)); L9:
+   return call('L4',checkSPF($ch,4)); L4:
+   return call('L5',checkRBL($ch,6)); L5:
    checkAttach($ch,'(noprocessing)',$BlockNPExes,$npAttachColl);
-   return call('L11',checkURIBL($ch,1)); L11:
-   return call('L12',npBodyDone($ch,$done)); L12:
+   return call('L6',checkURIBL($ch,1)); L6:
+   return call('L7',npBodyDone($ch,$done)); L7:
   }
  }];
  &{$sref->[0]};
@@ -1892,7 +1905,7 @@ sub whiteBody {
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
   checkLine($ch,$l) unless $this->{skipCheckLine};
-  $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
+  $done=$l=~/^\.(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
     mlogCond($ch,"body matches npRe: '$^R'",$RELog);
@@ -1901,23 +1914,23 @@ sub whiteBody {
     mlogCond($ch,"body matches npLwlRe: '$^R'",$RELog);
     $this->{noprocessing}|=32;
    }
-   # late (post-body) checks
-   return call('L3',checkHelo($ch,5,1,$this->{noprocessing})); L3:
+   # late (post-maxbytes) checks
+   return call('L2',checkHelo($ch,5)); L2:
    return if (shift)<0;
-   return call('L5',checkSender($ch,4,1,$this->{noprocessing})); L5:
+   return call('L3',checkSender($ch,4)); L3:
    return if (shift)<0;
-   return call('L7',checkSPF($ch,4,1,$this->{noprocessing})); L7:
-   return call('L9',checkRBL($ch,6,1,$this->{noprocessing})); L9:
-   if ($this->{noprocessing}) {
+   return call('L4',checkSPF($ch,4)); L4:
+   return call('L5',checkRBL($ch,6)); L5:
+   if (checkNoprocessing($ch)) {
     checkAttach($ch,'(noprocessing)',$BlockNPExes,$npAttachColl);
    } else {
     checkAttach($ch,'(local/white)',$BlockWLExes,$wlAttachColl);
    }
-   return call('L11',checkURIBL($ch,$this->{noprocessing})); L11:
-   if ($this->{noprocessing}) {
-    return call('L12',npBodyDone($ch,$done)); L12:
+   return call('L6',checkURIBL($ch)); L6:
+   if (checkNoprocessing($ch)) {
+    return call('L7',npBodyDone($ch,$done)); L7:
    } else {
-    return call('L13',whiteBodyDone($ch,$done)); L13:
+    return call('L8',whiteBodyDone($ch,$done)); L8:
    }
   }
  }];
@@ -1937,32 +1950,32 @@ sub getBody {
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
   checkLine($ch,$l) unless $this->{skipCheckLine};
-  $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
+  $done=$l=~/^\.(?:\015\012)?$/;
   if ($done || $this->{maillength}>=$MaxBytes) {
    if ($this->{body}=~$npReRE) {
     mlogCond($ch,"body matches npRe: '$^R'",$RELog);
     $this->{noprocessing}|=8;
    }
-   # late (post-body) checks
-   return call('L3',checkHelo($ch,5,1,$this->{noprocessing})); L3:
+   # late (post-maxbytes) checks
+   return call('L2',checkHelo($ch,5)); L2:
    return if (shift)<0;
-   return call('L5',checkSender($ch,4,1,$this->{noprocessing})); L5:
+   return call('L3',checkSender($ch,4)); L3:
    return if (shift)<0;
-   return call('L7',checkSPF($ch,4,1,$this->{noprocessing})); L7:
-   return call('L9',checkRBL($ch,6,1,$this->{noprocessing})); L9:
-   if ($this->{noprocessing}) {
+   return call('L4',checkSPF($ch,4)); L4:
+   return call('L5',checkRBL($ch,6)); L5:
+   if (checkNoprocessing($ch)) {
     checkAttach($ch,'(noprocessing)',$BlockNPExes,$npAttachColl);
    } else {
-    return call('L10',checkBomb($ch)); L10:
-    return call('L11',checkScript($ch)); L11:
+    return call('L6',checkBomb($ch)); L6:
+    return call('L7',checkScript($ch)); L7:
     checkAttach($ch,'(external)',$BlockExes,$extAttachColl);
    }
-   return call('L13',checkURIBL($ch,$this->{noprocessing})); L13:
-   if ($this->{noprocessing}) {
-    return call('L14',npBodyDone($ch,$done)); L14:
+   return call('L8',checkURIBL($ch)); L8:
+   if (checkNoprocessing($ch)) {
+    return call('L9',npBodyDone($ch,$done)); L9:
    } else {
-    return call('L15',checkSpam($ch)); L15:
-    return call('L16',getBodyDone($ch,$done)); L16:
+    return call('L10',checkBayes($ch)); L10:
+    return call('L11',getBodyDone($ch,$done)); L11:
    }
   }
  }];
@@ -1972,17 +1985,15 @@ sub getBody {
 
 sub npBodyDone {
  my ($ch,$done);
- my ($this,$checked);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{npBodyDone}||=[sub{
   ($ch,$done)=@_;
  },sub{&jump;
   $this=$Con{$ch};
-  $checked=$this->{checkedattach};
-  $checked=",$checked" if $checked;
   if ($this->{spamfound}) {
-   return call('L1',passSpam($ch,"safe spam (noprocessing$checked)",$done)); L1:
+   return call('L1',pass($ch,$done)); L1:
   } else {
-   return call('L2',passHam($ch,"message ok (noprocessing$checked)",$npColl,'noprocessing',$done)); L2:
+   return call('L2',passHam($ch,$npColl,'noprocessing',$done)); L2:
   }
  }];
  &{$sref->[0]};
@@ -1991,41 +2002,19 @@ sub npBodyDone {
 
 sub whiteBodyDone {
  my ($ch,$done);
- my ($this,$checked);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{whiteBodyDone}||=[sub{
   ($ch,$done)=@_;
  },sub{&jump;
   $this=$Con{$ch};
-  $checked=$this->{checkedattach};
-  $checked=",$checked" if $checked;
   if ($this->{spamfound}) {
-   if ($this->{relayok}) {
-    return call('L1',passSpam($ch,"safe spam (local$checked)",$done)); L1:
-   } else {
-    return call('L2',passSpam($ch,"safe spam (whitelisted$checked)",$done)); L2:
-   }
+   return call('L1',pass($ch,$done)); L1:
+  } elsif ($this->{red}) {
+   return call('L2',passHam($ch,$redColl,'reds',$done)); L2:
+  } elsif ($this->{relayok}) {
+   return call('L3',passHam($ch,$localColl,'locals',$done)); L3:
   } else {
-   if ($this->{relayok}) {
-    if ($this->{red}) {
-     return call('L3',passHam($ch,"message ok (local,redlisted$checked)",$redColl,'reds',$done)); L3:
-    } else {
-     return call('L4',passHam($ch,"message ok (local$checked)",$localColl,'locals',$done)); L4:
-    }
-   } else {
-    if ($this->{red}) {
-     if ($this->{white}) {
-      return call('L5',passHam($ch,"message ok (whitelisted,redlisted$checked)",$redColl,'reds',$done)); L5:
-     } elsif ($this->{rwlok}) {
-      return call('L6',passHam($ch,"message ok (rwlok,redlisted$checked)",$redColl,'reds',$done)); L6:
-     }
-    } else {
-     if ($this->{white}) {
-      return call('L7',passHam($ch,"message ok (whitelisted$checked)",$whiteColl,'whites',$done)); L7:
-     } elsif ($this->{rwlok}) {
-      return call('L8',passHam($ch,"message ok (rwlok$checked)",$whiteColl,'whites',$done)); L8:
-     }
-    }
-   }
+   return call('L4',passHam($ch,$whiteColl,'whites',$done)); L4:
   }
  }];
  &{$sref->[0]};
@@ -2034,21 +2023,17 @@ sub whiteBodyDone {
 
 sub getBodyDone {
  my ($ch,$done);
- my ($this,$checked);
+ my $this;
  my $sref=$Tasks{$CurTaskID}->{getBodyDone}||=[sub{
   ($ch,$done)=@_;
  },sub{&jump;
   $this=$Con{$ch};
-  $checked=$this->{checkedattach};
-  $checked=",$checked" if $checked;
   if ($this->{spamfound}) {
-   return call('L1',passSpam($ch,"safe spam (external$checked)",$done)); L1:
+   return call('L1',pass($ch,$done)); L1:
+  } elsif ($this->{red}) {
+   return call('L2',passHam($ch,$redColl,'reds',$done)); L2:
   } else {
-   if ($this->{red}) {
-    return call('L2',passHam($ch,"message ok (external,redlisted$checked)",$redColl,'reds',$done)); L2:
-   } else {
-    return call('L3',passHam($ch,"message ok (external$checked)",$baysNonSpamColl,'bhams',$done)); L3:
-   }
+   return call('L3',passHam($ch,$baysNonSpamColl,'bhams',$done)); L3:
   }
  }];
  &{$sref->[0]};
@@ -2057,25 +2042,24 @@ sub getBodyDone {
 
 # this is spam, lets see if its test mode or spamlover.
 sub thisIsSpam {
- my ($ch,$reason,$error,$testmode,$spamlover,$coll,$stats,$prob,$inreply)=@_;
+ my ($ch,$reason,$error,$testmode,$spamlover,$collno,$stats,$prob,$inreply)=@_;
+ return unless needCheck($ch,$collno,$testmode,$spamlover);
  my $this=$Con{$ch};
  $this->{stats}=$this->{tag}=$stats;
  $this->{error}=$error;
+ $this->{reason}=$reason;
  $this->{spamprob}=$prob;
- if (needCheck($ch,$coll,$testmode,$spamlover)) {
-  $this->{coll}=$coll;
-  if ($AddSpamReasonHeader) {
-   if ($this->{myheader}=~/^X-Assp-Spam-Reason$HeaderSepRe/imo) {
-    $this->{myheader}=~s/^(X-Assp-Spam-Reason$HeaderSepValueRe)/$1, $reason/gimo;
-   } else {
-    $this->{myheader}.='X-Assp-Spam-Reason: '.ucfirst($reason)."\015\012";
-   }
+ $this->{collno}=$collno;
+ if ($AddSpamReasonHeader) {
+  if ($this->{myheader}=~/^X-Assp-Spam-Reason$HeaderSepRe/imo) {
+   $this->{myheader}=~s/^(X-Assp-Spam-Reason$HeaderSepValueRe)/$1, $reason/gimo;
+  } else {
+   $this->{myheader}.='X-Assp-Spam-Reason: '.ucfirst($reason)."\015\012";
   }
-  slog($ch,'('.($this->{indata} && !$inreply ? needEs($this->{maillength},' byte','s').' received; ' : '')."$reason)",0,'I');
  }
- if ($this->{spamfound} & 4) {
-  mlogCond($ch,$reason,1);
- } elsif ($spamlover) {
+ slog($ch,'('.($this->{indata} && !$inreply ? needEs($this->{maillength},' byte','s').' received; ' : '')."$reason)",0,'I');
+ return if $this->{spamfound} & 4;
+ if ($this->{inrcptto} && $spamlover) {
   mlogCond($ch,"passing because spamlover(s): $this->{rcpt}, otherwise $reason",1) if $this->{indata};
   delayWhiteExpire($ch) unless $this->{allLoveNoDelaying};
   $this->{stats}='spamlover';
@@ -2086,7 +2070,6 @@ sub thisIsSpam {
   $this->{stats}='testspams';
   $this->{spamfound}|=2; # set testmode bit in spamfound flag
  } else {
-  mlogCond($ch,$reason,1);
   delayWhiteExpire($ch);
   # detatch the friend -- closing connection to server & disregarding message
   doneConnection($this->{friend},1) unless $inreply;
@@ -2096,30 +2079,14 @@ sub thisIsSpam {
 
 # the message is not spam, route it to the server
 sub passHam {
- my ($ch,$reason,$coll,$stats,$done);
+ my ($ch,$collno,$stats,$done);
  my $this;
  my $sref=$Tasks{$CurTaskID}->{passHam}||=[sub{
-  ($ch,$reason,$coll,$stats,$done)=@_;
+  ($ch,$collno,$stats,$done)=@_;
  },sub{&jump;
   $this=$Con{$ch};
-  $this->{coll}=$coll;
+  $this->{collno}=$collno;
   $this->{stats}=$this->{tag}=$stats;
-  $this->{mlogbuf}=$reason;
-  return call('L1',pass($ch,$done)); L1:
- }];
- &{$sref->[0]};
- return $sref->[1];
-}
-
-# the message is spam, route it to the server
-sub passSpam {
- my ($ch,$reason,$done);
- my $this;
- my $sref=$Tasks{$CurTaskID}->{passSpam}||=[sub{
-  ($ch,$reason,$done)=@_;
- },sub{&jump;
-  $this=$Con{$ch};
-  $this->{mlogbuf}=$reason;
   return call('L1',pass($ch,$done)); L1:
  }];
  &{$sref->[0]};
@@ -2131,16 +2098,16 @@ sub prepareTmpBody {
  my $ch=shift;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
- $SMTPSessions{$sh}->{tmpfn}="tmp/$SMTPSessions{$sh}->{id}_$SMTPSessions{$sh}->{msgcnt}";
- open($SMTPSessions{$sh}->{tmpfh},'>',"$base/$SMTPSessions{$sh}->{tmpfn}");
- binmode $SMTPSessions{$sh}->{tmpfh};
+ $SMTPSessions{$sh}->{tmpbodyfn}="tmp/$SMTPSessions{$sh}->{id}".'_'.($SMTPSessions{$sh}->{msgcnt}+1);
+ open($SMTPSessions{$sh}->{tmpbodyfh},'>',"$base/$SMTPSessions{$sh}->{tmpbodyfn}");
+ binmode $SMTPSessions{$sh}->{tmpbodyfh};
 }
 
 # write into message body tmp file
 sub addTmpBody {
  my ($ch,$l)=@_;
  my $this=$Con{$ch};
- print {$SMTPSessions{$this->{sh}}->{tmpfh}} $l;
+ print {$SMTPSessions{$this->{sh}}->{tmpbodyfh}} $l;
 }
 
 # close and/or unlink message body tmp file
@@ -2149,13 +2116,13 @@ sub doneTmpBody {
  my ($ch,$param)=@_;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
- if (($param & 1) && $SMTPSessions{$sh}->{tmpfh}) {
-  close $SMTPSessions{$sh}->{tmpfh};
-  delete $SMTPSessions{$sh}->{tmpfh};
+ if (($param & 1) && $SMTPSessions{$sh}->{tmpbodyfh}) {
+  close $SMTPSessions{$sh}->{tmpbodyfh};
+  delete $SMTPSessions{$sh}->{tmpbodyfh};
  }
- if (($param & 2) && $SMTPSessions{$sh}->{tmpfn}) {
-  unlink("$base/$SMTPSessions{$sh}->{tmpfn}");
-  delete $SMTPSessions{$sh}->{tmpfn};
+ if (($param & 2) && $SMTPSessions{$sh}->{tmpbodyfn}) {
+  unlink("$base/$SMTPSessions{$sh}->{tmpbodyfn}");
+  delete $SMTPSessions{$sh}->{tmpbodyfn};
  }
 }
 
@@ -2166,12 +2133,15 @@ sub pass {
   ($ch,$done)=@_;
  },sub{&jump;
   $this=$Con{$ch};
+  $this->{inpass}=1;
   $server=$this->{friend};
   $sf=$this->{spamfound};
-  $skip=$this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok};
+  $skip=$this->{isRelay} || checkNoprocessing($ch) && !$sf || $NoExternalSpamProb && $this->{relayok};
   ($rcvdh)=();
+  # clear out X-Assp-TimeoutProtection header
+  $this->{header}=~s/^X-Assp-TimeoutProtection$HeaderSepValueCRLFRe//gimo;
   unless ($skip) {
-   # preserve received X-ASSP headers
+   # preserve received X-Assp headers
    while ($this->{header}=~/^(X-Assp-$HeaderAllRe)/gimo) {
     $rcvdh.="$1; " unless $1=~/^X-Assp-Received-Headers$HeaderSepRe/io;
    }
@@ -2200,25 +2170,23 @@ sub pass {
      $header=~s/^Subject$HeaderSepRe/Subject: $sub /gimo; # rewrite all Subject: headers
     }
    }
-   # rewrite To: header in bounces
-   if ($CanUseSRS && $EnableSRS && $SRSRewriteToHeader && !$this->{isRelay} && $this->{isbounce}) {
-    if (($e)=$header=~/^To$HeaderSepRe($HeaderValueRe)/imo) {
-     ($tt,$tt2)=();
-     $srs=new Mail::SRS(Secret=>$SRSSecretKey,
-                        MaxAge=>$SRSTimestampMaxAge,
-                        HashLength=>$SRSHashLength,
-                        AlwaysRewrite=>1);
-     if ($e=~/<?(SRS0[=+-][^\015\012>]*).*/i) {
-      if (eval{$tt=$srs->reverse($1)}) {
-       $e=~s/\Q$1\E/$tt/;
-      }
-     } elsif ($e=~/^<?(SRS1[=+-][^\015\012>]*).*/i) {
-      if (eval{$tt=$srs->reverse($1)} && eval{$tt2=$srs->reverse($tt)}) {
-       $e=~s/\Q$1\E/$tt2/;
-      }
+   # try to unwind To: header to original email address
+   if ($CanUseSRS && $EnableSRS && !$this->{isRelay} && (($e)=$header=~/^To$HeaderSepRe($HeaderValueRe)/imo)) {
+    ($tt,$tt2)=();
+    $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                       MaxAge=>$SRSTimestampMaxAge,
+                       HashLength=>$SRSHashLength,
+                       AlwaysRewrite=>1);
+    if ($e=~/<?(SRS0[=+-][^\015\012>]*).*/i) {
+     if (eval{$tt=$srs->reverse($1)}) {
+      $e=~s/\Q$1\E/$tt/;
      }
-     $header=~s/^To$HeaderSepValueRe/To: $e/imo;
+    } elsif ($e=~/^<?(SRS1[=+-][^\015\012>]*).*/i) {
+     if (eval{$tt=$srs->reverse($1)} && eval{$tt2=$srs->reverse($tt)}) {
+      $e=~s/\Q$1\E/$tt2/;
+     }
     }
+    $header=~s/^To$HeaderSepValueRe/To: $e/imo;
    }
    $this->{myheader}.="X-Assp-Received-Headers: $rcvdh\015\012" if $rcvdh;
    $this->{myheader}.="X-Assp-Spam: YES\015\012" if $AddSpamHeader && $sf;
@@ -2249,7 +2217,7 @@ sub pass {
    return call('L2',finalizeMail($ch,$this->{body})); L2:
    return if (shift)<0;
   } else {
-   $this->{getline}=\&continueBody;
+   $this->{getline}='continueBody';
    $pos=0;
    while (1) {
     $str=substr($this->{body},$pos,$IncomingBufSize);
@@ -2268,72 +2236,75 @@ sub pass {
 
 # inlined and partially unrolled for speed
 sub continueBody {
- my ($ch,$l);
+ my ($ch,$buf);
  my ($this,$server,$bn,$len,$done);
  my $sref=$Tasks{$CurTaskID}->{continueBody}||=[sub{
-  ($ch,$l)=@_;
+  ($ch,$buf)=@_;
  },sub{&jump;
   $this=$Con{$ch};
   $server=$this->{friend};
-  $this->{skipCheckLine}=1;
-  if (needMsgVerify($ch)) {
-   return call('L1',needExtraCheck($ch,$MsgVerifyExtra,$this->{noprocessing},$this->{white})); L1:
-   $this->{skipCheckLine}=0 if (shift);
-  }
-  return call('L2',checkVirus($ch,$l)) unless $this->{skipCheckVirus}; L2:
-  $this->{maillength}+=length($l);
-  checkLine($ch,$l) unless $this->{skipCheckLine};
-  $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
+  return call('L2',checkVirus($ch,$buf)) unless $this->{skipCheckVirus}; L2:
+  $this->{maillength}+=length($buf);
+  $done=$buf=~/^\.(?:\015\012)?$/m;
   if ($done) {
-   return call('L3',finalizeMail($ch,$l)); L3:
+   return call('L3',finalizeMail($ch,$buf)); L3:
    return if (shift)<0;
   } else {
-   sendque($server,$l);
-   addTmpBody($ch,$l);
+   sendque($server,$buf);
+   addTmpBody($ch,$buf);
+   return cede('L4',1); L4:
   }
   # it's possible that the connection can be deleted
   # while there's still something in the buffer
-  return unless $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
-  while (($bn=index($this->{_},"\015\012"))>=0) {
+  return unless exists $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
+  $len=length($this->{incoming});
+  addTrafStats($ch,$len);
+  return call('L8',checkVirus($ch,$this->{incoming})) unless $this->{skipCheckVirus}; L8:
+  $this->{maillength}+=$len;
+  $done=$this->{incoming}=~/^\.(?:\015\012)?$/m;
+  if ($done) {
+   return call('L9',finalizeMail($ch,$this->{incoming})); L9:
+   return if (shift)<0;
+  } else {
+   sendque($server,$this->{incoming});
+   addTmpBody($ch,$this->{incoming});
+   return cede('L10',1); L10:
+  }
+  $this->{incoming}='' if exists $Con{$ch}; # '$this' may be not valid -- check $Con{$ch} instead
+  while ($ch->opened()) {
+   waitTaskRead(0,$ch,$SMTPTimeout || 10);
+   return cede('L11'); L11:
+   unless (getTaskWaitResult(0)) {
+    next unless $SMTPTimeout && $this->{active};
+    # connection timed out
+    return call('L12',onSMTPtimeout($ch,1)); L12:
+    return;
+   }
+   unless ($ch->sysread($buf,$IncomingBufSize)>0) {
+    # connection closed by peer
+    return call('L13',onSMTPclose($ch)); L13:
+    return;
+   }
+   $this->{incoming}.=$buf;
+   next unless ($bn=rindex($this->{incoming},"\015\012"))>=0;
    $bn+=2; # crlf length
-   $l=substr($this->{_},0,$bn,''); # four-argument substr()
-   $len=length($l);
+   $buf=substr($this->{incoming},0,$bn,''); # four-argument substr()
+   $len=length($buf);
    addTrafStats($ch,$len);
-   $this->{bdata}-=$len if defined($this->{bdata});
-   return call('L4',checkVirus($ch,$l)) unless $this->{skipCheckVirus}; L4:
+   return call('L14',checkVirus($ch,$buf)) unless $this->{skipCheckVirus}; L14:
    $this->{maillength}+=$len;
-   checkLine($ch,$l) unless $this->{skipCheckLine};
-   $done=$l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
+   $done=$buf=~/^\.(?:\015\012)?$/m;
    if ($done) {
-    return call('L5',finalizeMail($ch,$l)); L5:
+    return call('L15',finalizeMail($ch,$buf)); L15:
     return if (shift)<0;
    } else {
-    sendque($server,$l);
-    addTmpBody($ch,$l);
+    sendque($server,$buf);
+    addTmpBody($ch,$buf);
+    return cede('L16',1); L16:
    }
    # it's possible that the connection can be deleted
    # while there's still something in the buffer
-   last unless $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
-  }
-  # '$this' may be not valid -- check $Con{$ch} instead
-  if ($Con{$ch}) {
-   $len=length($this->{_});
-   if ($len>$MaxBytes) {
-    addTrafStats($ch,$len);
-    $this->{bdata}-=$len if defined($this->{bdata});
-    return call('L6',checkVirus($ch,$this->{_})) unless $this->{skipCheckVirus}; L6:
-    $this->{maillength}+=$len;
-    checkLine($ch,$this->{_}) unless $this->{skipCheckLine};
-    $done=$this->{_}=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0;
-    if ($done) {
-     return call('L7',finalizeMail($ch,$this->{_})); L7:
-     return if (shift)<0;
-    } else {
-     sendque($server,$this->{_});
-     addTmpBody($ch,$this->{_});
-    }
-    $this->{_}='' if $Con{$ch}; # '$this' may be not valid -- check $Con{$ch} instead
-   }
+   return unless exists $Con{$ch}; # '$this' may be not valid -- check $Con{$ch}
   }
  }];
  &{$sref->[0]};
@@ -2351,19 +2322,25 @@ sub finalizeMail {
   $SMTPSessions{$sh}->{msgcnt}++;
   addTmpBody($ch,$l);
   doneTmpBody($ch,1); # close tmp message body file
-  return call('L1',checkClamAV($ch)); L1:
+  return call('L1',checkClamAV($ch)) unless $this->{skipCheckVirus}; L1:
   slog($ch,'('.needEs($this->{maillength},' byte','s').' received; end of data)',0,'I');
   $sf=$this->{spamfound};
-  return -1 if $this->{stats} && checkRateLimit($ch,$this->{stats},1,1)<0;
-  if ($sf & 4) {
-   return -1 if checkRateLimit($ch,'msgAnyBlockedSpam',1,1)<0;
-  } elsif ($sf) {
-   return -1 if checkRateLimit($ch,'msgAnyPassedSpam',1,1)<0;
-  } else {
-   return -1 if checkRateLimit($ch,'msgAnyHam',0,1)<0;
+  if ($this->{stats}) {
+   return call('L2',checkRateLimit($ch,$this->{stats},1)); L2:
+   return -1 if (shift)<0;
   }
   if ($sf & 4) {
-   return call('L2',doneMail($ch)); L2:
+   return call('L3',checkRateLimit($ch,'msgAnyBlockedSpam',1)); L3:
+   return -1 if (shift)<0;
+  } elsif ($sf) {
+   return call('L4',checkRateLimit($ch,'msgAnyPassedSpam',1)); L4:
+   return -1 if (shift)<0;
+  } else {
+   return call('L5',checkRateLimit($ch,'msgAnyHam')); L5:
+   return -1 if (shift)<0;
+  }
+  if ($sf & 4) {
+   return call('L6',doneMail($ch)); L6:
    # ignore what was sent & give reason at the end
    sendError($ch,$this->{error});
    return 0;
@@ -2377,19 +2354,43 @@ sub finalizeMail {
 
 sub doneMail {
  my $ch;
- my ($this,$sf,$coll);
+ my ($this,$sf,$msg,$collno);
  my $sref=$Tasks{$CurTaskID}->{doneMail}||=[sub{
   $ch=shift;
  },sub{&jump;
   $this=$Con{$ch};
-  return if $this->{isRelay} || $this->{simulating};
   $sf=$this->{spamfound};
-  $coll=$this->{coll};
-  $logCount[$coll]++;
-  return if $logCount[$coll]<$logFreq[$coll];
-  $logCount[$coll]=0;
+  $msg=$this->{reason};
+  $msg.=' (';
+  if ($sf & 4) {
+   $msg.='blocked';
+  } elsif ($sf & 2) {
+   $msg.='testmode';
+  } elsif ($sf & 1) {
+   $msg.='spamlover';
+  } else {
+   $msg.='passed';
+  }
+  if ($this->{relayok}) {
+   $msg.=',local';
+  } else {
+   $msg.=',external';
+  }
+  if ($this->{white}) {
+   $msg.=',whitelisted';
+  } elsif ($this->{rwlok}) {
+   $msg.=',rwlok';
+  }
+  $msg.=',redlisted' if $this->{red};
+  $msg.=')';
+  mlogCond($ch,$msg,1);
+  return if $this->{isRelay} || $this->{simulating};
+  $collno=$this->{collno};
+  $logCount[$collno]++;
+  return if $logCount[$collno]<$logFreq[$collno];
+  $logCount[$collno]=0;
   # fix {myheader} if spam was found after MaxBytes has been reached
-  unless ($this->{noprocessing} && !$sf || $NoExternalSpamProb && $this->{relayok}) {
+  unless (checkNoprocessing($ch) && !$sf || $NoExternalSpamProb && $this->{relayok}) {
    # clear out some existing headers
    $this->{myheader}=~s/^X-Assp-Spam$HeaderSepValueCRLFRe//gimo;
    $this->{myheader}=~s/^X-Assp-Spam-Prob$HeaderSepValueCRLFRe//gimo;
@@ -2399,8 +2400,8 @@ sub doneMail {
    # wrap long header lines
    headerWrap($this->{myheader});
   }
-  return call('L1',collectMail($ch)) if $Collections{$coll}->[0]; L1:
-  newTask(taskForwardMail($ch),'NORM','S') if $Collections{$coll}->[1];
+  newTask(taskCollectMail($ch),'IDLE','M') if $CollectModeOptions{$collno}->[0];
+  newTask(taskForwardMail($ch),'IDLE','M') if $CollectModeOptions{$collno}->[1];
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -2424,7 +2425,7 @@ sub sendError {
 sub skipok {
  my ($ch,$l)=@_;
  if ($l=~/^250/) {
-  $Con{$ch}->{getline}=\&reply;
+  $Con{$ch}->{getline}='reply';
   slog($ch,"$l (in response to NOOP)",0,'S');
  } else {
   reply(@_);
@@ -2444,7 +2445,8 @@ sub reply {
   slog($ch,$l);
   $Con{$client}->{inerror}=$l=~/^(?:550|50[0-9])/;
   if ($DetectInvalidRecipient && $l=~/$DetectInvalidRecipient/i) {
-   return if checkRateLimit($client,'rcptNonexistent',1)<0;
+   return call('L1',checkRateLimit($client,'rcptNonexistent',1)); L1:
+   return if (shift)<0;
    # drop last recipient
    $Con{$client}->{rcpt}=~s/(.*?)[^ ]+ ?$/$1/;
    ($e)=$l=~/($EmailAdrRe\@$EmailDomainRe)/o;
@@ -2455,15 +2457,13 @@ sub reply {
    $reply=~s/EMAILADDRESS/$e/g;
    sayque($client,$reply);
    $Stats{rcptUnchecked}-- if $Stats{rcptUnchecked}>0;
-   checkMaxErrors($client,'rcptNonexistent',1,1);
+   return call('L2',checkMaxErrors($client,'rcptNonexistent',1,1)); L2:
    return;
-  } elsif ($l=~/250-(?:CHUNKING|PIPELINING)/i) {
+  } elsif ($l=~/250.(?:CHUNKING|PIPELINING|XEXCH50)/i) {
    # we'll filter off the chunking directive to avoid BDAT problems.
-   return;
-  } elsif ($l=~/250-XEXCH50/i) {
    # we'll filter off the XEXCH50 service, as it only causes troubles
    return;
-  } elsif ($l=~/250-.*STARTTLS/i) {
+  } elsif ($l=~/250.*STARTTLS/i) {
    # we'll filter off the STARTTLS directive to avoid TLS problems.
    return;
   } elsif ($l=~/^220/) {
@@ -2473,10 +2473,11 @@ sub reply {
     delete $this->{noop};
    }
    # early (on-connect) checks
-   return call('L1',checkRateLimitBlock($client,1)); L1:
+   return call('L3',checkRateLimitBlock($client,1)); L3:
    return if (shift)<0;
-   return call('L3',checkRBL($client,1)); L3:
-   return if checkNonLate($client)<0;
+   return call('L4',checkRBL($client,1)); L4:
+   return call('L5',checkNonLate($client)); L5:
+   return if (shift)<0;
    # detect earlytalkers
    unless ($this->{greetdelay}<0) {
     $delay=$this->{greetdelay};
@@ -2484,7 +2485,7 @@ sub reply {
     $this->{greetdelay}=-1;
     resumeTask($Con{$client}->{itid});
     waitTaskRead(0,$client,$delay);
-    return cede('L4'); L4:
+    return cede('L6'); L6:
     if (getTaskWaitResult(0)) {
      if ($client->sysread($buf,$IncomingBufSize)>0) {
       $len=length($buf);
@@ -2492,7 +2493,8 @@ sub reply {
       # peek at the spontaneous client
       slog($client,$buf);
       delayWhiteExpire($client);
-      return if checkRateLimit($client,'msgEarlytalker')<0;
+      return call('L7',checkRateLimit($client,'msgEarlytalker')); L7:
+      return if (shift)<0;
       $ip=$Con{$client}->{ip};
       $port=$Con{$client}->{port};
       mlogCond($client,'earlytalker ('.needEs($len,' byte','s').')',$ConnectionLog && !$Con{$client}->{mNLOGRE});
@@ -2506,33 +2508,33 @@ sub reply {
     }
    }
    # early (pre-banner) checks
-   return call('L5',checkRateLimitBlock($client,2)); L5:
+   return call('L8',checkRateLimitBlock($client,2)); L8:
    return if (shift)<0;
-   return call('L7',checkRBL($client,2)); L7:
-   return if checkNonLate($client)<0;
+   return call('L9',checkRBL($client,2)); L9:
+   return call('L10',checkNonLate($client)); L10:
+   return if (shift)<0;
   } elsif ($l=~/^235/) {
    # check for authentication response
    mlogCond($client,'authenticated',$ClientValLog);
-   $Con{$client}->{relayok}=1;
+   $Con{$client}->{authok}=1;
   } elsif ($l=~/^354/) {
   } elsif ($l=~/^(?:550|50[0-9])/) {
-   if ($Con{$client}->{skipbytes}) {
-    $Con{$client}->{skipbytes}=0; # if we got a negative response from XEXCH50 then don't skip anything
-   }
-   return if checkMaxErrors($client,'',1,1)<0;
+   return call('L11',checkMaxErrors($client,'',1,1)); L11:
+   return if (shift)<0;
   }
   if ($Con{$client}->{indata}) {
    # check server response to DATA
    if ($Con{$client}->{inerror}) {
     thisIsSpam($client,'message rejected by server','',0,0,$serverRejectedColl,'msgServerRejected',1,1); # keep server connection open
-    return if checkRateLimit($client,'msgServerRejected')<0;
-    return if checkRateLimit($client,'msgAnyBlockedSpam')<0;
+    return call('L12',checkRateLimit($client,'msgServerRejected')); L12:
+    return if (shift)<0;
+    return call('L13',checkRateLimit($client,'msgAnyBlockedSpam')); L13:
+    return if (shift)<0;
    }
-   return call('L8',doneMail($client)); L8:
+   return call('L14',doneMail($client)); L14:
    if ($Con{$client}->{inerror}) {
     doneStats($client,0,'msgServerRejected');
    } else {
-    mlogCond($client,$Con{$client}->{mlogbuf},1);
     doneStats($client,1);
    }
    doneTmpBody($client,2); # unlink tmp message body file
@@ -2541,7 +2543,7 @@ sub reply {
   }
   # email report/list interface sends messages itself
   return if defined($Con{$client}->{reporttype}) && $Con{$client}->{reporttype}>=0;
-  sayque($client,$l);
+  sayque($client,$l,$l=~/^\d+-/);
  }];
  &{$sref->[0]};
  return $sref->[1];
@@ -2549,6 +2551,41 @@ sub reply {
 
 #####################################################################################
 #                Checks functions
+
+sub checkRelay {
+ my $ch=shift;
+ my $this=$Con{$ch};
+ my $ip=$this->{ip};
+ my $result;
+ if (@{$this->{Relaycache}}) {
+  ($result)=@{$this->{Relaycache}};
+ } else {
+  if ($this->{isRelay}) {
+   $result=1;
+  } else {
+   if ($relayHostFile) {
+    check4update(relayHostFile);
+    $result=$relayHostFile{$ip};
+   }
+   $result||=PopB4SMTP($ip);
+  }
+  @{$this->{Relaycache}}=($result);
+ }
+ $this->{mAMRE}=matchSLIP($this->{mailfrom},$ip,'acceptAllMail');
+ return $result || $this->{authok} || $this->{mAMRE};
+}
+
+sub PopB4SMTP {
+ return 0 unless $PopB4SMTPFile;
+ my $ip=shift;
+ my %hash;
+ tie(%hash,DB_File,$PopB4SMTPFile,O_READ,0400,$DB_HASH);
+ if ($hash{$ip}) {
+  return 1;
+ } else {
+  return 0;
+ }
+}
 
 # returns true if this address is local
 sub localMailDomain {
@@ -2560,6 +2597,14 @@ sub localMailDomain {
   return 1 if $localDomainsFile{lc $h};
  }
  return 0;
+}
+
+# returns true if connection is noprocessing
+# accounts for initial state of {noprocessing} flag
+sub checkNoprocessing {
+ my $ch=shift;
+ my $this=$Con{$ch};
+ return $this->{noprocessing} & (255-2) || ($this->{noprocessing} & 2) && $this->{inrcptto};
 }
 
 sub checkLDAP {
@@ -2577,7 +2622,7 @@ sub checkLDAP {
   last if $ldap;
   if ($#ldaplist>0 && $i>1) {
    mlogCond($ch,"couldn't contact LDAP server ($ldaplist[0]) -- trying another ($ldaplist[1])",1);
-   push(@ldaplist,shift(@ldaplist));
+   push(@ldaplist,shift @ldaplist);
   }
  }
  unless ($ldap) {
@@ -2618,9 +2663,9 @@ sub checkLDAP {
 }
 
 sub needCheck {
- my ($ch,$coll,$testmode,$spamlover)=@_;
+ my ($ch,$collno,$testmode,$spamlover)=@_;
  my $this=$Con{$ch};
- return $coll>$this->{coll} || !(($this->{spamfound} & 4) || $testmode || $spamlover);
+ return $collno>$this->{collno} || !(($this->{spamfound} & 4) || $testmode || $this->{inrcptto} && $spamlover);
 }
 
 # determine if need to do extraCheck
@@ -2640,47 +2685,51 @@ sub needCheck {
 # 1  1  1             0 0 0 0 1 1 1 1
 #
 sub needExtraCheck {
- my ($ch,$config,$np,$wl);
+ my ($ch,$config,$wl);
  my $this;
  my $sref=$Tasks{$CurTaskID}->{needExtraCheck}||=[sub{
-  ($ch,$config,$np,$wl)=@_;
+  ($ch,$config,$wl)=@_;
  },sub{&jump;
+  return $config & 1 if checkNoprocessing($ch);
   $this=$Con{$ch};
-  if ($np) {
-   return $config & 1;
-  } elsif ($wl) {
-   if (($config & 6)==6) {
-    return 1;
-   } elsif ($config & 2) {
+  if ($wl) {
+   return 1 if ($config & 6)==6;
+   if ($config & 2) {
     return call('L1',checkRWL($ch)); L1:
     return !$this->{rwlok};
-   } else {
-    return 0;
    }
-  } else {
-   if ($config & 4) {
-    return 1;
-   } else {
-    return call('L2',checkRWL($ch)); L2:
-    return !$this->{rwlok};
-   }
+   return 0;
   }
+  return 1 if $config & 4;
+  return call('L2',checkRWL($ch)); L2:
+  return !$this->{rwlok};
  }];
  &{$sref->[0]};
  return $sref->[1];
 }
 
 sub checkNonLate {
- my ($ch,$spamlover)=@_;
- my $this=$Con{$ch};
- # any failures from non-late checks?
- if ($this->{spamfound} & 4) {
-  return -1 if $this->{stats} && checkRateLimit($ch,$this->{stats},1,$spamlover)<0;
-  return -1 if checkRateLimit($ch,'msgAnyBlockedSpam',1,$spamlover)<0;
-  sendError($ch,$this->{error});
-  return -1;
- }
- return 1;
+ my $ch;
+ my $this;
+ my $sref=$Tasks{$CurTaskID}->{checkNonLate}||=[sub{
+  $ch=shift;
+ },sub{&jump;
+  $this=$Con{$ch};
+  # any failures from non-late checks?
+  if ($this->{spamfound} & 4) {
+   if ($this->{stats}) {
+    return call('L1',checkRateLimit($ch,$this->{stats},1)); L1:
+    return -1 if (shift)<0;
+   }
+   return call('L2',checkRateLimit($ch,'msgAnyBlockedSpam',1)); L2:
+   return -1 if (shift)<0;
+   sendError($ch,$this->{error});
+   return -1;
+  }
+  return 1;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # see if the address in the mailfrom is on the whitelist meanwhile update the whitelist if that seems appropriate
@@ -2688,8 +2737,6 @@ sub checkWhitelist {
  my $ch=shift;
  my $this=$Con{$ch};
  my $whitelisted=$this->{relayok};
- # don't add to the whitelist unless there's a valid envelope -- prevent bounced mail from adding to the whitelist
- return $whitelisted if $this->{isbounce};
  my $a=lc $this->{mailfrom};
  if ($Redlist{$a}) {
   mlogCond($ch,'sender on redlist',$SenderValLog);
@@ -2729,6 +2776,8 @@ sub checkWhitelist {
   $this->{senders}=join(' ',keys %senders).' '; # used for finding blacklisted domains
   $this->{white}=$whitelisted;
  }
+ # prevent bounced mail from adding to the whitelist
+ return $whitelisted if $this->{isbounce};
  # don't add to whitelist if sender is redlisted
  return $whitelisted if $this->{red} || $WhitelistLocalOnly && !$this->{relayok};
  if ($whitelisted) {
@@ -2807,90 +2856,102 @@ sub checkSpamLover {
 }
 
 sub checkEmailInterface {
- my ($ch,$u,$rcptlocal)=@_;
- my $this=$Con{$ch};
- return 0 unless $EmailInterfaceOk && $this->{relayok} && $rcptlocal;
- return 0 if $this->{simulating};
- if (lc $u eq lc "$EmailSpam\@") {
-  return -1 if checkRateLimit($ch,'rcptReportSpam',0,1)<0;
-  $this->{reporttype}=0;
-  $this->{getline}=\&spamReport;
-  mlog($ch,'email spamreport') if $EmailInterfaceLog;
-  sayque($ch,'250 OK');
-  $Stats{rcptReportSpam}++;
-  return -1;
- } elsif (lc $u eq lc "$EmailHam\@") {
-  return -1 if checkRateLimit($ch,'rcptReportHam',0,1)<0;
-  $this->{reporttype}=1;
-  $this->{getline}=\&spamReport;
-  mlog($ch,'email hamreport') if $EmailInterfaceLog;
-  sayque($ch,'250 OK');
-  $Stats{rcptReportHam}++;
-  return -1;
- } elsif (lc $u eq lc "$EmailWhitelistAdd\@") {
-  return -1 if checkRateLimit($ch,'rcptReportWhitelistAdd',0,1)<0;
-  $this->{reporttype}=2;
-  $this->{getline}=\&listReport;
-  mlog($ch,'email whitelist addition') if $EmailInterfaceLog;
-  foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
-  sayque($ch,'250 OK');
-  $Stats{rcptReportWhitelistAdd}++;
-  return -1;
- } elsif (lc $u eq lc "$EmailWhitelistRemove\@") {
-  return -1 if checkRateLimit($ch,'rcptReportWhitelistRemove',0,1)<0;
-  $this->{reporttype}=3;
-  $this->{getline}=\&listReport;
-  mlog($ch,'email whitelist deletion') if $EmailInterfaceLog;
-  foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
-  sayque($ch,'250 OK');
-  $Stats{rcptReportWhitelistRemove}++;
-  return -1;
- } elsif (lc $u eq lc "$EmailRedlistAdd\@") {
-  return -1 if checkRateLimit($ch,'rcptReportRedlistAdd',0,1)<0;
-  $this->{reporttype}=4;
-  $this->{getline}=\&listReport;
-  mlog($ch,'email redlist addition') if $EmailInterfaceLog;
-  foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
-  sayque($ch,'250 OK');
-  $Stats{rcptReportRedlistAdd}++;
-  return -1;
- } elsif (lc $u eq lc "$EmailRedlistRemove\@") {
-  return -1 if checkRateLimit($ch,'rcptReportRedlistRemove',0,1)<0;
-  $this->{reporttype}=5;
-  $this->{getline}=\&listReport;
-  mlog($ch,'email redlist deletion') if $EmailInterfaceLog;
-  foreach my $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
-  sayque($ch,'250 OK');
-  $Stats{rcptReportRedlistRemove}++;
-  return -1;
- }
- return 0;
+ my ($ch,$u,$rcptlocal);
+ my ($this,$a);
+ my $sref=$Tasks{$CurTaskID}->{checkEmailInterface}||=[sub{
+  ($ch,$u,$rcptlocal)=@_;
+ },sub{&jump;
+  return 0 unless $EmailInterfaceOk;
+  $this=$Con{$ch};
+  return 0 if $this->{simulating} || !($this->{relayok} && $rcptlocal);
+  if (lc $u eq lc "$EmailSpam\@") {
+   return call('L1',checkRateLimit($ch,'rcptReportSpam')); L1:
+   return -1 if (shift)<0;
+   $this->{reporttype}=0;
+   $this->{getline}='spamReport';
+   mlog($ch,'email spamreport') if $EmailInterfaceLog;
+   sayque($ch,'250 OK');
+   $Stats{rcptReportSpam}++;
+   return -1;
+  } elsif (lc $u eq lc "$EmailHam\@") {
+   return call('L2',checkRateLimit($ch,'rcptReportHam')); L2:
+   return -1 if (shift)<0;
+   $this->{reporttype}=1;
+   $this->{getline}='spamReport';
+   mlog($ch,'email hamreport') if $EmailInterfaceLog;
+   sayque($ch,'250 OK');
+   $Stats{rcptReportHam}++;
+   return -1;
+  } elsif (lc $u eq lc "$EmailWhitelistAdd\@") {
+   return call('L3',checkRateLimit($ch,'rcptReportWhitelistAdd')); L3:
+   return -1 if (shift)<0;
+   $this->{reporttype}=2;
+   $this->{getline}='listReport';
+   mlog($ch,'email whitelist addition') if $EmailInterfaceLog;
+   foreach $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
+   sayque($ch,'250 OK');
+   $Stats{rcptReportWhitelistAdd}++;
+   return -1;
+  } elsif (lc $u eq lc "$EmailWhitelistRemove\@") {
+   return call('L4',checkRateLimit($ch,'rcptReportWhitelistRemove')); L4:
+   return -1 if (shift)<0;
+   $this->{reporttype}=3;
+   $this->{getline}='listReport';
+   mlog($ch,'email whitelist deletion') if $EmailInterfaceLog;
+   foreach $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
+   sayque($ch,'250 OK');
+   $Stats{rcptReportWhitelistRemove}++;
+   return -1;
+  } elsif (lc $u eq lc "$EmailRedlistAdd\@") {
+   return call('L5',checkRateLimit($ch,'rcptReportRedlistAdd')); L5:
+   return -1 if (shift)<0;
+   $this->{reporttype}=4;
+   $this->{getline}='listReport';
+   mlog($ch,'email redlist addition') if $EmailInterfaceLog;
+   foreach $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
+   sayque($ch,'250 OK');
+   $Stats{rcptReportRedlistAdd}++;
+   return -1;
+  } elsif (lc $u eq lc "$EmailRedlistRemove\@") {
+   return call('L6',checkRateLimit($ch,'rcptReportRedlistRemove')); L6:
+   return -1 if (shift)<0;
+   $this->{reporttype}=5;
+   $this->{getline}='listReport';
+   mlog($ch,'email redlist deletion') if $EmailInterfaceLog;
+   foreach $a (split(/ /,$this->{rcpt})) {listReportExec($ch,$a);}
+   sayque($ch,'250 OK');
+   $Stats{rcptReportRedlistRemove}++;
+   return -1;
+  }
+  return 0;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub checkHelo {
- my ($ch,$pos,$spamlover,$np);
+ my ($ch,$pos);
  my ($this,$result,$skip,$literal,$ip2,$res,$sock,$packet,@answer,$a);
  my $sref=$Tasks{$CurTaskID}->{checkHelo}||=[sub{
-  ($ch,$pos,$spamlover,$np)=@_;
+  ($ch,$pos)=@_;
  },sub{&jump;
-  return 1 if $pos && $pos!=$HeloPosition;
+  return 1 if !$ValidateHelo || $pos && $pos!=$HeloPosition;
   $result=1;
   $this=$Con{$ch};
-  $spamlover&&=$this->{allLoveHlSpam};
   if (@{$this->{Helocache}}) {
    ($result)=@{$this->{Helocache}};
   } else {
    ($skip)=();
-   if ($this->{relayok} || $this->{mISPRE} || !$ValidateHelo) {
+   if ($this->{relayok} || $this->{mISPRE}) {
     $skip=1;
-   } elsif (!needCheck($ch,$spamHeloColl,$hlTestMode,$spamlover)) {
+   } elsif (!needCheck($ch,$spamHeloColl,$hlTestMode,$this->{allLoveHlSpam})) {
     mlogCond($ch,'client helo check skipped (unnecessary)',$ClientValLog);
     $skip=1;
    } elsif (matchIP($this->{ip},'noHelo')) {
      mlogCond($ch,"client helo check skipped (noHelo IP): $this->{helo}",$ClientValLog);
     $skip=1;
    } else {
-    return call('L_1',needExtraCheck($ch,$HeloExtra,$np,$this->{white})); L_1:
+    return call('L1',needExtraCheck($ch,$HeloExtra,$this->{white})); L1:
     $skip=1 unless (shift);
    }
    unless ($skip) {
@@ -2927,7 +2988,7 @@ sub checkHelo {
         $res=Net::DNS::Resolver->new();
         $sock=$res->bgsend($this->{helo});
         waitTaskRead(0,$sock,10);
-        return cede('L1'); L1:
+        return cede('L2'); L2:
         if (getTaskWaitResult(0)) {
          $packet=$res->bgread($sock);
          @answer=$packet->answer;
@@ -2951,16 +3012,18 @@ sub checkHelo {
    # update Stats
    if ($skip) {
     mlogCond($ch,"client helo accepted unchecked: $this->{helo}",$ClientValLog) unless $this->{spamfound};
-    return -1 if checkRateLimit($ch,'clientHeloUnchecked',0,$spamlover)<0;
+    return call('L3',checkRateLimit($ch,'clientHeloUnchecked')); L3:
+    return -1 if (shift)<0;
     $Stats{clientHeloUnchecked}++;
    } elsif ($result) {
     mlogCond($ch,"client helo validated: $this->{helo}",$ClientValLog);
-    return -1 if checkRateLimit($ch,'clientHeloValidated',0,$spamlover)<0;
+    return call('L4',checkRateLimit($ch,'clientHeloValidated')); L4:
+    return -1 if (shift)<0;
     $Stats{clientHeloValidated}++;
    }
   }
   unless ($result) {
-   thisIsSpam($ch,'spam helo',$SpamError,$hlTestMode,$spamlover,$spamHeloColl,'helolisted',1);
+   thisIsSpam($ch,'spam helo',$SpamError,$hlTestMode,$this->{allLoveHlSpam},$spamHeloColl,'helolisted',1);
   }
   return $result;
  }];
@@ -2969,29 +3032,28 @@ sub checkHelo {
 }
 
 sub checkSender {
- my ($ch,$pos,$spamlover,$np);
+ my ($ch,$pos);
  my ($this,$result,$skip,$u,$h,$res,$sock,$packet);
  my $sref=$Tasks{$CurTaskID}->{checkSender}||=[sub{
-  ($ch,$pos,$spamlover,$np)=@_;
+  ($ch,$pos)=@_;
  },sub{&jump;
-  return 1 if $pos && $pos!=$SenderPosition;
+  return 1 if !$ValidateSender || $pos && $pos!=$SenderPosition;
   $result=1;
   $this=$Con{$ch};
-  $spamlover&&=$this->{allLoveMfSpam};
   if (@{$this->{Sendercache}}) {
    ($result)=@{$this->{Sendercache}};
   } else {
    ($skip)=();
-   if ($this->{relayok} || $this->{mISPRE} || !$ValidateSender) {
+   if ($this->{relayok} || $this->{mISPRE}) {
     $skip=1;
-   } elsif (!needCheck($ch,$mfFailColl,$mfTestMode,$spamlover)) {
+   } elsif (!needCheck($ch,$mfFailColl,$mfTestMode,$this->{allLoveMfSpam})) {
     mlogCond($ch,'sender check skipped (unnecessary)',$SenderValLog);
     $skip=1;
    } elsif (matchSL($this->{mailfrom},'noSenderCheck')) {
     mlogCond($ch,"sender check skipped (noSenderCheck): $this->{mailfrom}",$SenderValLog);
     $skip=1;
    } else {
-    return call('L_6',needExtraCheck($ch,$SenderExtra,$np,$this->{white})); L_6:
+    return call('L1',needExtraCheck($ch,$SenderExtra,$this->{white})); L1:
     $skip=1 unless (shift);
    }
    unless ($skip) {
@@ -3003,7 +3065,8 @@ sub checkSender {
      }
      unless ($result) {
       mlogCond($ch,"sender forged (local): $this->{mailfrom}",$SenderValLog);
-      return -1 if checkRateLimit($ch,'senderForged',0,$spamlover)<0;
+      return call('L2',checkRateLimit($ch,'senderForged')); L2:
+      return -1 if (shift)<0;
       $Stats{senderForged}++;
      }
     } elsif ($CanUseDNS && $SenderMX && !$this->{isbounce}) {
@@ -3014,7 +3077,7 @@ sub checkSender {
      $res=Net::DNS::Resolver->new();
      $sock=$res->bgsend($h,'A');
      waitTaskRead(0,$sock,10);
-     return cede('L1'); L1:
+     return cede('L3'); L3:
      if (getTaskWaitResult(0)) {
       $packet=$res->bgread($sock);
       if ($packet->header->ancount) {
@@ -3022,7 +3085,7 @@ sub checkSender {
       } else {
        $sock=$res->bgsend($h,'MX');
        waitTaskRead(0,$sock,10);
-       return cede('L2'); L2:
+       return cede('L4'); L4:
        if (getTaskWaitResult(0)) {
         $packet=$res->bgread($sock);
         $result=1 if $packet->header->ancount;
@@ -3031,7 +3094,8 @@ sub checkSender {
      }
      unless ($result) {
       mlogCond($ch,"sender nonexistent MX (remote): $this->{mailfrom}",$SenderValLog);
-      return -1 if checkRateLimit($ch,'senderNoMX',0,$spamlover)<0;
+      return call('L5',checkRateLimit($ch,'senderNoMX')); L5:
+      return -1 if (shift)<0;
       $Stats{senderNoMX}++;
      }
     }
@@ -3039,41 +3103,48 @@ sub checkSender {
    @{$this->{Sendercache}}=($result);
    # update Stats
    if ($skip) {
-    if ($np) {
+    if (checkNoprocessing($ch)) {
      mlogCond($ch,"sender noprocessing: $this->{mailfrom}",$SenderValLog);
-     return -1 if checkRateLimit($ch,'senderUnprocessed')<0;
+     return call('L6',checkRateLimit($ch,'senderUnprocessed')); L6:
+     return -1 if (shift)<0;
      $Stats{senderUnprocessed}++;
     } elsif ($this->{white}) {
      mlogCond($ch,"sender whitelisted: $this->{mailfrom}",$SenderValLog);
-     return -1 if checkRateLimit($ch,'senderWhitelisted')<0;
+     return call('L7',checkRateLimit($ch,'senderWhitelisted')); L7:
+     return -1 if (shift)<0;
      $Stats{senderWhitelisted}++;
     } elsif ($this->{rwlok}) {
      mlogCond($ch,"sender rwlok: $this->{mailfrom}",$SenderValLog);
-     return -1 if checkRateLimit($ch,'senderWhitelisted')<0;
+     return call('L8',checkRateLimit($ch,'senderWhitelisted')); L8:
+     return -1 if (shift)<0;
      $Stats{senderWhitelisted}++;
     } elsif ($this->{mailfromlocal}) {
      mlogCond($ch,"sender accepted unchecked (local): $this->{mailfrom}",$SenderValLog) unless $this->{spamfound};
-     return -1 if checkRateLimit($ch,'senderUncheckedLocal',0,$spamlover)<0;
+     return call('L9',checkRateLimit($ch,'senderUncheckedLocal')); L9:
+     return -1 if (shift)<0;
      $Stats{senderUnchecked}++;
     } else {
      mlogCond($ch,"sender accepted unchecked (remote): $this->{mailfrom}",$SenderValLog) unless $this->{spamfound};
-     return -1 if checkRateLimit($ch,'senderUncheckedRemote',0,$spamlover)<0;
+     return call('L10',checkRateLimit($ch,'senderUncheckedRemote')); L10:
+     return -1 if (shift)<0;
      $Stats{senderUncheckedRemote}++;
     }
    } elsif ($result) {
     if ($this->{mailfromlocal}) {
      mlogCond($ch,"sender validated (local): $this->{mailfrom}",$SenderValLog);
-     return -1 if checkRateLimit($ch,'senderValidatedLocal',0,$spamlover)<0;
+     return call('L11',checkRateLimit($ch,'senderValidatedLocal')); L11:
+     return -1 if (shift)<0;
      $Stats{senderValidatedLocal}++;
     } else {
      mlogCond($ch,"sender validated (remote): $this->{mailfrom}",$SenderValLog);
-     return -1 if checkRateLimit($ch,'senderValidatedRemote',0,$spamlover)<0;
+     return call('L12',checkRateLimit($ch,'senderValidatedRemote')); L12:
+     return -1 if (shift)<0;
      $Stats{senderValidatedRemote}++;
     }
    }
   }
   unless ($result) {
-   thisIsSpam($ch,'invalid sender',$SpamError,$mfTestMode,$spamlover,$mfFailColl,'senderfails',1);
+   thisIsSpam($ch,'invalid sender',$SpamError,$mfTestMode,$this->{allLoveMfSpam},$mfFailColl,'senderfails',1);
   }
   return $result;
  }];
@@ -3091,10 +3162,10 @@ sub checkSpamBucket {
 }
 
 sub checkSRSBounce {
+ return unless $CanUseSRS && $EnableSRS;
  my $ch=shift;
  my $this=$Con{$ch};
  return if $this->{relayok} || $this->{mISPRE};
- return unless $CanUseSRS && $EnableSRS;
  return unless $SRSValidateBounce && $this->{invalidSRSBounce};
  return unless needCheck($ch,$SRSFailColl,$srsTestMode,$this->{allLoveSRSSpam});
  return if matchIP($this->{ip},'noSRSBounce');
@@ -3103,23 +3174,22 @@ sub checkSRSBounce {
 
 # do SPF (sender policy framework) checks
 sub checkSPF {
- my ($ch,$pos,$spamlover,$np);
+ my ($ch,$pos);
  my ($this,$per_result,$smtp_comment,$skip,$ip,$query,$header_comment,$time,$r,$received_spf,$err);
  my $sref=$Tasks{$CurTaskID}->{checkSPF}||=[sub{
-  ($ch,$pos,$spamlover,$np)=@_;
+  ($ch,$pos)=@_;
  },sub{&jump;
-  return if $pos && $pos!=$SPFPosition;
+  return if !($CanUseSPF && $ValidateSPF) || $pos && $pos!=$SPFPosition;
   $this=$Con{$ch};
-  $spamlover&&=$this->{allLoveSPFSpam};
   ($per_result,$smtp_comment)=();
   if (@{$this->{SPFcache}}) {
    ($per_result,$smtp_comment)=@{$this->{SPFcache}};
   } else {
    ($skip)=();
    $ip=$this->{ip};
-   if ($this->{relayok} || $this->{mISPRE} || !($CanUseSPF && $ValidateSPF)) {
+   if ($this->{relayok} || $this->{mISPRE}) {
     $skip=1;
-   } elsif (!needCheck($ch,$SPFFailColl,$spfTestMode,$spamlover)) {
+   } elsif (!needCheck($ch,$SPFFailColl,$spfTestMode,$this->{allLoveSPFSpam})) {
     mlogCond($ch,'SPF lookup skipped (unnecessary)',$SPFLog);
     $skip=1;
    } elsif (matchIP($ip,'noSPF')) {
@@ -3127,7 +3197,7 @@ sub checkSPF {
     $this->{myheader}.="X-Assp-Received-SPF: lookup skipped (noSPF IP); client-ip=$ip\015\012" if $AddSPFHeader;
     $skip=1;
    } else {
-    return call('L_8',needExtraCheck($ch,$SPFExtra,$np,$this->{white})); L_8:
+    return call('L1',needExtraCheck($ch,$SPFExtra,$this->{white})); L1:
     $skip=1 unless (shift);
    }
    unless ($skip) {
@@ -3182,7 +3252,7 @@ sub checkSPF {
    # This email fails SPF rules for the sending domain. Apply SPF Failure Rules
    $err=$SPFError;
    $err=~s/COMMENT/$smtp_comment/g;
-   thisIsSpam($ch,'failed SPF checks',$err,$spfTestMode,$spamlover,$SPFFailColl,'spffails',1);
+   thisIsSpam($ch,'failed SPF checks',$err,$spfTestMode,$this->{allLoveSPFSpam},$SPFFailColl,'spffails',1);
   }
  }];
  &{$sref->[0]};
@@ -3203,7 +3273,7 @@ sub checkRWL {
   } else {
    ($skip)=();
    $ip=$this->{ip};
-   if ($this->{relayok} || $this->{mISPRE} || !($CanUseRWL && $ValidateRWL)) {
+   if (!($CanUseRWL && $ValidateRWL) || $this->{relayok} || $this->{mISPRE}) {
     $skip=1;
    } elsif (matchIP($ip,'noRWL')) {
     mlogCond($ch,"RWL lookup skipped (noRWL IP)",$RBLLog);
@@ -3250,23 +3320,22 @@ sub checkRWL {
 
 # do RBL checks
 sub checkRBL {
- my ($ch,$pos,$spamlover,$np);
+ my ($ch,$pos);
  my ($this,$rbls_returned,@listed_by,$skip,$ip,$rbl,$received_rbl,$time,$err);
  my $sref=$Tasks{$CurTaskID}->{checkRBL}||=[sub{
-  ($ch,$pos,$spamlover,$np)=@_;
+  ($ch,$pos)=@_;
  },sub{&jump;
-  return 1 if $pos && $pos!=$RBLPosition;
+  return 1 if !($CanUseRBL && $ValidateRBL) || $pos && $pos!=$RBLPosition;
   $this=$Con{$ch};
-  $spamlover&&=$this->{allLoveRBLSpam};
   ($rbls_returned,@listed_by)=();
   if (@{$this->{RBLcache}}) {
    ($rbls_returned,@listed_by)=@{$this->{RBLcache}};
   } else {
    ($skip)=();
    $ip=$this->{ip};
-   if ($this->{relayok} || $this->{mISPRE} || !($CanUseRBL && $ValidateRBL)) {
+   if ($this->{relayok} || $this->{mISPRE}) {
     $skip=1;
-   } elsif (!needCheck($ch,$RBLFailColl,$rblTestMode,$spamlover)) {
+   } elsif (!needCheck($ch,$RBLFailColl,$rblTestMode,$this->{allLoveRBLSpam})) {
     mlogCond($ch,'RBL lookup skipped (unnecessary)',$RBLLog);
     $skip=1;
    } elsif (matchIP($ip,'noRBL')) {
@@ -3274,7 +3343,7 @@ sub checkRBL {
     $this->{myheader}.="X-Assp-Received-RBL: lookup skipped (noRBL IP); client-ip=$ip\015\012" if $AddRBLHeader;
     $skip=1;
    } else {
-    return call('L_10',needExtraCheck($ch,$RBLExtra,$np,$this->{white})); L_10:
+    return call('L1',needExtraCheck($ch,$RBLExtra,$this->{white})); L1:
     $skip=1 unless (shift);
    }
    unless ($skip) {
@@ -3288,7 +3357,7 @@ sub checkRBL {
     ($received_rbl)=();
     $Stats{providerQueriesRBL}++;
     $time=Time::HiRes::time() if $AvailHiRes;
-    return call('L1',$rbl->lookup($ch,$ip)); L1:
+    return call('L2',$rbl->lookup($ch,$ip)); L2:
     if ($AvailHiRes) {
      $time=Time::HiRes::time()-$time;
      $Stats{providerTimeRBL}+=$time;
@@ -3312,7 +3381,7 @@ sub checkRBL {
   if ($rbls_returned>=$RBLmaxhits) {
    $err=$RBLError;
    $err=~s/RBLNAME/@listed_by/g;
-   thisIsSpam($ch,'failed RBL checks',$err,$rblTestMode,$spamlover,$RBLFailColl,'rblfails',1);
+   thisIsSpam($ch,'failed RBL checks',$err,$rblTestMode,$this->{allLoveRBLSpam},$RBLFailColl,'rblfails',1);
   }
  }];
  &{$sref->[0]};
@@ -3335,107 +3404,118 @@ sub ipBroadcast {
 
 # do Delaying checks
 sub checkDelaying {
- my ($ch,$rcpt)=@_;
- my $this=$Con{$ch};
- return 1 if $this->{relayok} || $this->{mISPRE} || $this->{noprocessing};
- return 1 unless $EnableDelaying;
- my $time=$UseLocalTime ? localtime() : gmtime();
- my $tz=$UseLocalTime ? tzStr() : '+0000';
- $time=~s/... (...) +(\d+) (........) (....)/$2 $1 $4 $3/;
- if (!$DelayWL && $this->{white}) {
-  mlogCond($ch,"recipient not delayed (sender whitelisted): $rcpt",$DelayLog);
-  $this->{myheader}.="X-Assp-Delay: not delayed (sender whitelisted); $time $tz\015\012" if $DelayAddHeader;
-  return 1;
- }
- if (matchIP($this->{ip},'noDelay')) {
-  mlogCond($ch,"recipient not delayed (noDelay IP): $rcpt",$DelayLog);
-  $this->{myheader}.="X-Assp-Delay: not delayed (noDelay IP); $time $tz\015\012" if $DelayAddHeader;
-  return 1;
- }
- if ($this->{allLoveNoDelaying}) {
-  mlogCond($ch,"recipient not delayed (spamlover): $rcpt",$DelayLog);
-  $this->{myheader}.="X-Assp-Delay: not delayed (spamlover); $time $tz\015\012" if $DelayAddHeader;
-  return 1;
- }
- my $a=lc $this->{mailfrom};
- if ($DelayNormalizeVERPs) {
-  # strip extension
-  $a=~s/\+.*(?=@)//;
-  # replace numbers with '#'
-  $a=~s/\b\d+\b(?=.*@)/#/g;
- }
- my $ip=$DelayUseNetblocks ? ipNetwork($this->{ip},24) : $this->{ip};
- my $hash="$ip $a ". lc $rcpt;
- # get sender domain
- my $awhite=$a;
- $awhite=~s/.*@//;
- my $hashwhite="$ip $awhite";
- if ($CanUseMD5Keys) {
-  $hash=Digest::MD5::md5_hex($hash);
-  $hashwhite=Digest::MD5::md5_hex($hashwhite);
- }
- my $t=time;
- my $ret=0;
- if (!exists $DelayWhite{$hashwhite}) {
-  if (!exists $Delay{$hash}) {
-   return -1 if checkRateLimit($ch,'rcptDelayed')<0;
-   mlogCond($ch,"adding new triplet: ($ip,$a,". lc $rcpt .')',$DelayLog);
-   $Delay{$hash}=$t unless $this->{simulating};
-   $Stats{rcptDelayed}++;
-  } else {
-   my $interval=$t-$Delay{$hash};
-   my $intfmt=formatTimeInterval($interval);
-   if ($interval<$DelayEmbargoTime*60) {
-    return -1 if checkRateLimit($ch,'rcptEmbargoed')<0;
-    mlogCond($ch,"embargoing triplet: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
-    $Stats{rcptEmbargoed}++;
-   } elsif ($interval<$DelayEmbargoTime*60+$DelayWaitTime*3600) {
-    mlogCond($ch,"whitelisting triplet: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
-    unless ($this->{simulating}) {
-     delete $Delay{$hash};
-     $DelayWhite{$hashwhite}=$t;
+ my ($ch,$rcpt);
+ my ($this,$time,$tz,$a,$ip,$hash,$awhite,$hashwhite,$t,$ret,$interval,$intfmt);
+ my $sref=$Tasks{$CurTaskID}->{checkDelaying}||=[sub{
+  ($ch,$rcpt)=@_;
+ },sub{&jump;
+  return 1 unless $EnableDelaying;
+  $this=$Con{$ch};
+  return 1 if $this->{relayok} || $this->{mISPRE} || checkNoprocessing($ch);
+  $time=$UseLocalTime ? localtime() : gmtime();
+  $tz=$UseLocalTime ? tzStr() : '+0000';
+  $time=~s/... (...) +(\d+) (........) (....)/$2 $1 $4 $3/;
+  if (!$DelayWL && $this->{white}) {
+   mlogCond($ch,"recipient not delayed (sender whitelisted): $rcpt",$DelayLog);
+   $this->{myheader}.="X-Assp-Delay: not delayed (sender whitelisted); $time $tz\015\012" if $DelayAddHeader;
+   return 1;
+  }
+  if (matchIP($this->{ip},'noDelay')) {
+   mlogCond($ch,"recipient not delayed (noDelay IP): $rcpt",$DelayLog);
+   $this->{myheader}.="X-Assp-Delay: not delayed (noDelay IP); $time $tz\015\012" if $DelayAddHeader;
+   return 1;
+  }
+  if ($this->{allLoveNoDelaying}) {
+   mlogCond($ch,"recipient not delayed (spamlover): $rcpt",$DelayLog);
+   $this->{myheader}.="X-Assp-Delay: not delayed (spamlover); $time $tz\015\012" if $DelayAddHeader;
+   return 1;
+  }
+  $a=lc $this->{mailfrom};
+  if ($DelayNormalizeVERPs) {
+   # strip extension
+   $a=~s/\+.*(?=@)//;
+   # replace numbers with '#'
+   $a=~s/\b\d+\b(?=.*@)/#/g;
+  }
+  $ip=$DelayUseNetblocks ? ipNetwork($this->{ip},24) : $this->{ip};
+  $hash="$ip $a ". lc $rcpt;
+  # get sender domain
+  $awhite=$a;
+  $awhite=~s/.*@//;
+  $hashwhite="$ip $awhite";
+  if ($CanUseMD5Keys) {
+   $hash=Digest::MD5::md5_hex($hash);
+   $hashwhite=Digest::MD5::md5_hex($hashwhite);
+  }
+  $t=time;
+  $ret=0;
+  if (!exists $DelayWhite{$hashwhite}) {
+   if (!exists $Delay{$hash}) {
+    return call('L1',checkRateLimit($ch,'rcptDelayed')); L1:
+    return -1 if (shift)<0;
+    mlogCond($ch,"adding new triplet: ($ip,$a,". lc $rcpt .')',$DelayLog);
+    $Delay{$hash}=$t unless $this->{simulating};
+    $Stats{rcptDelayed}++;
+   } else {
+    $interval=$t-$Delay{$hash};
+    $intfmt=formatTimeInterval($interval);
+    if ($interval<$DelayEmbargoTime*60) {
+     return call('L2',checkRateLimit($ch,'rcptEmbargoed')); L2:
+     return -1 if (shift)<0;
+     mlogCond($ch,"embargoing triplet: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
+     $Stats{rcptEmbargoed}++;
+    } elsif ($interval<$DelayEmbargoTime*60+$DelayWaitTime*3600) {
+     mlogCond($ch,"whitelisting triplet: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
+     unless ($this->{simulating}) {
+      delete $Delay{$hash};
+      $DelayWhite{$hashwhite}=$t;
+     }
+     $this->{myheader}.="X-Assp-Delay: delayed for $intfmt; $time $tz\015\012" if $DelayAddHeader;
+     $ret=1;
+    } else {
+     return call('L3',checkRateLimit($ch,'rcptDelayedLate')); L3:
+     return -1 if (shift)<0;
+     mlogCond($ch,"late triplet encountered, deleting: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
+     $Delay{$hash}=$t unless $this->{simulating};
+     $Stats{rcptDelayedLate}++;
     }
-    $this->{myheader}.="X-Assp-Delay: delayed for $intfmt; $time $tz\015\012" if $DelayAddHeader;
+   }
+  } else {
+   $interval=$t-$DelayWhite{$hashwhite};
+   $intfmt=formatTimeInterval($interval);
+   if ($interval<$DelayExpiryTime*86400) {
+    mlogCond($ch,"renewing whitelisted tuplet: ($ip,$awhite) age: ". $intfmt,$DelayLog);
+    unless ($this->{simulating}) {
+     $DelayWhite{$hashwhite}=$t;
+     # multiple rcpt's
+     delete $Delay{$hash};
+    }
+    $this->{myheader}.="X-Assp-Delay: not delayed (auto whitelisted); $time $tz\015\012" if $DelayAddHeader;
     $ret=1;
    } else {
-    return -1 if checkRateLimit($ch,'rcptDelayedLate')<0;
-    mlogCond($ch,"late triplet encountered, deleting: ($ip,$a,". lc $rcpt .") waited: $intfmt",$DelayLog);
-    $Delay{$hash}=$t unless $this->{simulating};
-    $Stats{rcptDelayedLate}++;
+    return call('L4',checkRateLimit($ch,'rcptDelayedExpired')); L4:
+    return -1 if (shift)<0;
+    mlogCond($ch,"deleting expired tuplet: ($ip,$awhite) age: ". $intfmt,$DelayLog);
+    unless ($this->{simulating}) {
+     delete $DelayWhite{$hashwhite};
+     $Delay{$hash}=$t;
+    }
+    $Stats{rcptDelayedExpired}++;
    }
   }
- } else {
-  my $interval=$t-$DelayWhite{$hashwhite};
-  my $intfmt=formatTimeInterval($interval);
-  if ($interval<$DelayExpiryTime*86400) {
-   mlogCond($ch,"renewing whitelisted tuplet: ($ip,$awhite) age: ". $intfmt,$DelayLog);
-   unless ($this->{simulating}) {
-    $DelayWhite{$hashwhite}=$t;
-    # multiple rcpt's
-    delete $Delay{$hash};
+  unless ($ret) {
+   $this->{delayed}=1;
+   unless ($this->{isRelay} || $this->{isbounce}) {
+    mlogCond($ch,"recipient delayed: $rcpt",$DelayLog);
+    sayque($ch,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
+    doneStats($ch); # $stats not set deliberately
+    $ret=-1; # but keep connection open
    }
-   $this->{myheader}.="X-Assp-Delay: not delayed (auto whitelisted); $time $tz\015\012" if $DelayAddHeader;
-   $ret=1;
-  } else {
-   return -1 if checkRateLimit($ch,'rcptDelayedExpired')<0;
-   mlogCond($ch,"deleting expired tuplet: ($ip,$awhite) age: ". $intfmt,$DelayLog);
-   unless ($this->{simulating}) {
-    delete $DelayWhite{$hashwhite};
-    $Delay{$hash}=$t;
-   }
-   $Stats{rcptDelayedExpired}++;
   }
- }
- unless ($ret) {
-  $this->{delayed}=1;
-  unless ($this->{isRelay} || $this->{isbounce}) {
-   mlogCond($ch,"recipient delayed: $rcpt",$DelayLog);
-   sayque($ch,$DelayError ? $DelayError : '451 4.7.1 Please try again later');
-   doneStats($ch); # $stats not set deliberately
-   $ret=-1; # but keep connection open
-  }
- }
- return $ret;
+  return $ret;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # delete whitelisted tuplet
@@ -3457,18 +3537,29 @@ sub delayWhiteExpire {
 }
 
 sub needMsgVerify {
- return 0 unless $EnableMsgVerify;
- my $ch=shift;
- my $this=$Con{$ch};
- return !$this->{relayok} && !$this->{mISPRE} && !$this->{mNMVRE};
+ my ($ch,$wl);
+ my $this;
+ my $sref=$Tasks{$CurTaskID}->{needMsgVerify}||=[sub{
+  ($ch,$wl)=@_;
+ },sub{&jump;
+  $this=$Con{$ch};
+  $this->{skipCheckLine}=1;
+  return 0 unless $EnableMsgVerify;
+  return 0 if $this->{relayok} || $this->{mISPRE} || $this->{mNMVRE};
+  return 0 unless needCheck($ch,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
+  return call('L1',needExtraCheck($ch,$MsgVerifyExtra,$wl)); L1:
+  return 0 unless (shift);
+  $this->{skipCheckLine}=0 if $MsgVerifyLineLength;
+  return 1;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 sub checkLine {
  my ($ch,$l)=@_;
  my $this=$Con{$ch};
- return $this->{skipCheckLine}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
- return unless needCheck($ch,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
- if ($MsgVerifyLineLength && length($l)>$MsgVerifyLineLength) {
+ if (length($l)>$MsgVerifyLineLength) {
   thisIsSpam($ch,'oversized line',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
  }
 }
@@ -3476,8 +3567,6 @@ sub checkLine {
 sub checkHeader {
  my $ch=shift;
  my $this=$Con{$ch};
- return if $AVBytes && $this->{maillength}>=$AVBytes;
- return unless needCheck($ch,$malformedColl,$malformedTestMode,$this->{allLoveMalformedSpam});
  if ($MsgVerifyHeaders && $this->{header}!~/^$HeaderAllCRLFRe+$/) {
   thisIsSpam($ch,'malformed headers',$SpamError,$malformedTestMode,$this->{allLoveMalformedSpam},$malformedColl,'malformed',1);
  }
@@ -3492,28 +3581,27 @@ sub prepareClamAV {
  },sub{&jump;
   $this=$Con{$ch};
   return unless $AvUseClamAV;
-  return if !$Avlocal && $this->{mailfromlocal};
-  return unless needCheck($ch,$viriColl);
+  return $this->{skipCheckVirus}=1 unless needCheck($ch,$viriColl);
   return call('L1',newConnect($AvDestination,2,'command','ClamAV scan',$ch,$AvLog)); L1:
-  return unless $s=shift;
+  return $this->{skipCheckVirus}=1 unless $s=shift;
   $buf="STREAM\n";
   unless ($s->syswrite($buf,$OutgoingBufSize)>0) {
    mlogCond($ch,'disconnected while sending command -- aborting ClamAV scan',$AvLog);
    close $s;
-   return;
+   return $this->{skipCheckVirus}=1;
   }
-  waitTaskRead(0,$s,60);
+  waitTaskRead(0,$s,10);
   return cede('L2'); L2:
   unless (getTaskWaitResult(0)) {
    mlogCond($ch,'timeout while waiting for command response -- aborting ClamAV scan',$AvLog);
    close $s;
-   return;
+   return $this->{skipCheckVirus}=1;
   }
   unless ($s->sysread($buf,256)>0) {
    # clamd disconnected while we were waiting for input
    mlogCond($ch,'disconnected while receiving command response -- aborting ClamAV scan',$AvLog);
    close $s;
-   return;
+   return $this->{skipCheckVirus}=1;
   }
   chomp($buf);
   if (($resp)=$buf=~/^PORT (\d+)/) {
@@ -3522,7 +3610,7 @@ sub prepareClamAV {
    return call('L3',newConnect($dest,2,'stream','ClamAV scan',$ch,$AvLog)); L3:
    unless ($st=shift) {
     close $s;
-    return;
+    return $this->{skipCheckVirus}=1;
    }
    mlogCond($ch,"connected to ClamAV stream socket at $dest",$AvLog);
    # all connections are prepared
@@ -3531,7 +3619,7 @@ sub prepareClamAV {
   } else {
    mlogCond($ch,"unknown command response: '$buf' -- aborting ClamAV scan",$AvLog);
    close $s;
-   return;
+   return $this->{skipCheckVirus}=1;
   }
  }];
  &{$sref->[0]};
@@ -3545,30 +3633,28 @@ sub checkVirus {
   ($ch,$l)=@_;
  },sub{&jump;
   $this=$Con{$ch};
-  return $this->{skipCheckVirus}=1 if !$Avlocal && $this->{mailfromlocal};
-  return unless needCheck($ch,$viriColl);
+  return $this->{skipCheckVirus}=1 unless needCheck($ch,$viriColl);
   if ($AvUseClamAV) {
    # scan for viruses using ClamAV's clamd daemon
    $sh=$this->{sh};
    $st=$SMTPSessions{$sh}->{clamdsth};
-   return unless $st;
-   waitTaskWrite(0,$st,60);
+   return $this->{skipCheckVirus}=1 unless $st;
+   waitTaskWrite(0,$st,10);
    return cede('L1'); L1:
    unless (getTaskWaitResult(0)) {
     mlogCond($ch,'timeout while sending stream to ClamAV ('.needEs($this->{maillength},' byte','s').')',$AvLog);
     doneClamAV($ch,2); # close STREAM
-    return;
+    return $this->{skipCheckVirus}=1;
    }
    unless ($st->syswrite($l,$OutgoingBufSize)>0) {
     # clamd disconnected while we were streaming (StreamMaxLength is in effect?)
     mlogCond($ch,'disconnected while sending stream to ClamAV ('.needEs($this->{maillength},' byte','s').')',$AvLog);
     doneClamAV($ch,2); # close STREAM
-    return;
+    return $this->{skipCheckVirus}=1;
    }
   } else {
    # scan for viruses using our AV engine
-   return $this->{skipCheckVirus}=1 unless $AvDbs;
-   return $this->{skipCheckVirus}=1 if $AVBytes && $this->{maillength}>=$AVBytes;
+   return $this->{skipCheckVirus}=1 if !$AvDbs || $AVBytes && $this->{maillength}>=$AVBytes;
    ($av)=();
    unless ($av=$this->{av}) {
     $av=$this->{av}=Av->new();
@@ -3599,23 +3685,24 @@ sub checkClamAV {
  },sub{&jump;
   $this=$Con{$ch};
   return unless $AvUseClamAV;
-  return if !$Avlocal && $this->{mailfromlocal};
-  return unless needCheck($ch,$viriColl);
+  return $this->{skipCheckVirus}=1 unless needCheck($ch,$viriColl);
   doneClamAV($ch,2); # close STREAM
   $sh=$this->{sh};
   $s=$SMTPSessions{$sh}->{clamdch};
-  return unless $s;
+  return $this->{skipCheckVirus}=1 unless $s;
   $Stats{providerQueriesAV}++;
   $time=Time::HiRes::time() if $AvailHiRes;
   waitTaskRead(0,$s,$Avmaxtime);
   return cede('L1'); L1:
   unless (getTaskWaitResult(0)) {
    mlogCond($ch,'timeout while waiting for result response from ClamAV',$AvLog);
+   return $this->{skipCheckVirus}=1;
   } elsif ($s->sysread($buf,256)>0) {
    chomp($buf);
    if (($resp,$code)=$buf=~/^(.*)\s+(ERROR|FOUND|OK)$/) {
     if ($code eq 'ERROR') {
      mlogCond($ch,"error result response from ClamAV: '$resp'",$AvLog);
+     return $this->{skipCheckVirus}=1;
     } elsif ($code eq 'FOUND') {
      # this mail is infected
      ($virus)=$resp=~/\s+(.*)/;
@@ -3627,10 +3714,12 @@ sub checkClamAV {
     }
    } else {
     mlogCond($ch,"unknown result response from ClamAV: '$buf'",$AvLog);
+    return $this->{skipCheckVirus}=1;
    }
   } else {
    # clamd disconnected while we were waiting for input
    mlogCond($ch,'disconnected while receiving result response from ClamAV',$AvLog);
+   return $this->{skipCheckVirus}=1;
   }
   doneClamAV($ch,1); # close COMMAND
   if ($AvailHiRes) {
@@ -3650,14 +3739,16 @@ sub doneClamAV {
  my ($ch,$param)=@_;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
- if (($param & 1) && $SMTPSessions{$sh}->{clamdch}) {
+ if (($param & 1) && (my $s=$SMTPSessions{$sh}->{clamdch})) {
+  last unless $s->connected();
   mlogCond($ch,'closing command connection to ClamAV',$AvLog);
-  $SMTPSessions{$sh}->{clamdch}->close();
+  $s->close();
   delete $SMTPSessions{$sh}->{clamdch};
  }
- if (($param & 2) && $SMTPSessions{$sh}->{clamdsth}) {
+ if (($param & 2) && (my $s=$SMTPSessions{$sh}->{clamdsth})) {
+  last unless $s->connected();
   mlogCond($ch,'closing stream connection to ClamAV',$AvLog);
-  $SMTPSessions{$sh}->{clamdsth}->close();
+  $s->close();
   delete $SMTPSessions{$sh}->{clamdsth};
  }
 }
@@ -3707,11 +3798,10 @@ sub checkScript {
 }
 
 sub checkAttach {
- my ($ch,$reason,$block,$coll)=@_;
+ my ($ch,$reason,$block,$collno)=@_;
  my $this=$Con{$ch};
- $this->{checkedattach}='attachments unchecked';
  return unless $block;
- return unless needCheck($ch,$coll);
+ return unless needCheck($ch,$collno);
  return if matchSL($this->{mailfrom},'noAttachment');
  while ($this->{body}=~/^Content-(?:$HeaderNameSepRe)($HeaderValueRe)name\s*=\s*($HeaderValueRe)/gimo) {
   # skip forwarded messages whose subject ends with a .com domain eg
@@ -3721,33 +3811,33 @@ sub checkAttach {
    # clean and unquote
    my $name=$1; $name=~tr/\r\n\t/ /; $name=~s/^[\'\"](.*)[\'\"]$/$1/;
    mlogCond($ch,"matches badattachRe: '$name'",$RELog);
-   thisIsSpam($ch,"bad attachment $reason",$AttachmentError,0,0,$coll,'viri',1);
+   thisIsSpam($ch,"bad attachment $reason",$AttachmentError,0,0,$collno,'viri',1);
    return;
   }
  }
- $this->{checkedattach}='no bad attachments';
 }
 
 # do URIBL checks
 sub checkURIBL {
- my ($ch,$np);
- my ($this,%domains,$ucnt,$dcnt,$uri,$orig_uri,$i,$ip,$uribl,$received_uribl,$uribl_result);
- my (@listed_by,$listed_domain,$uribls_returned,@domains,$n,$lcnt,$err);
+ my $ch;
+ my ($this,%domains,$ucnt,$dcnt,$uri,$orig_uri,$i,$ip,$uribl,$received_uribl,$uribl_result,$time);
+ my (@listed_by,$listed_domain,$uribls_returned,@domains,$n,$lcnt,$err,$domain);
  my $sref=$Tasks{$CurTaskID}->{checkURIBL}||=[sub{
-  ($ch,$np)=shift;
+  $ch=shift;
  },sub{&jump;
+  return unless $CanUseURIBL && $ValidateURIBL;
   $this=$Con{$ch};
-  if ($this->{relayok} || $this->{mISPRE} || !($CanUseURIBL && $ValidateURIBL)) {
+  if ($this->{relayok} || $this->{mISPRE}) {
    return;
   } elsif (!needCheck($ch,$URIBLFailColl,$uriblTestMode,$this->{allLoveURIBLSpam})) {
    mlogCond($ch,"URIBL lookup skipped (unnecessary)",$RBLLog);
    return;
   } elsif (matchSL($this->{mailfrom},'noURIBL')) {
    mlogCond($ch,"URIBL lookup skipped (noURIBL sender)",$RBLLog);
-   $this->{myheader}.="X-Assp-Received-RBL: lookup skipped (noURIBL sender)" if $AddURIBLHeader;
+   $this->{myheader}.="X-Assp-Received-URIBL: lookup skipped (noURIBL sender)\015\012" if $AddURIBLHeader;
    return;
   } else {
-   return call('L_10',needExtraCheck($ch,$URIBLExtra,$np,$this->{white})); L_10:
+   return call('L1',needExtraCheck($ch,$URIBLExtra,$this->{white})); L1:
    return unless (shift);
   }
   (%domains,$ucnt,$dcnt)=();
@@ -3811,7 +3901,7 @@ sub checkURIBL {
    $domain=$domains[$n];
    $Stats{providerQueriesURIBL}++;
    $time=Time::HiRes::time() if $AvailHiRes;
-   return call('L1',$uribl->lookup($ch,$domain)); L1:
+   return call('L2',$uribl->lookup($ch,$domain)); L2:
    if ($AvailHiRes) {
     $time=Time::HiRes::time()-$time;
     $Stats{providerTimeURIBL}+=$time;
@@ -3846,19 +3936,27 @@ sub checkURIBL {
 }
 
 sub checkMaxErrors {
- my ($ch,$stats,$expire,$relayok)=@_;
- my $this=$Con{$ch};
- $Stats{$stats}++ if $stats;
- # increment error and drop line if necessary
- if (++($this->{serverErrors})>$MaxErrors) {
-  delayWhiteExpire($ch) if $expire;
-  return -1 if checkRateLimit($ch,'msgMaxErrors',$relayok)<0;
-  my $err="max errors ($MaxErrors) exceeded -- dropping connection";
-  mlogCond($ch,$err,1);
-  sendError($ch,"($err)",1,'msgMaxErrors');
-  return -1;
- }
- return 1;
+ my ($ch,$stats,$expire,$relayok);
+ my ($this,$err);
+ my $sref=$Tasks{$CurTaskID}->{checkMaxErrors}||=[sub{
+  ($ch,$stats,$expire,$relayok)=@_;
+ },sub{&jump;
+  $this=$Con{$ch};
+  $Stats{$stats}++ if $stats;
+  # increment error and drop line if necessary
+  if (++($this->{serverErrors})>$MaxErrors) {
+   delayWhiteExpire($ch) if $expire;
+   return call('L1',checkRateLimit($ch,'msgMaxErrors',$relayok)); L1:
+   return -1 if (shift)<0;
+   $err="max errors ($MaxErrors) exceeded -- dropping connection";
+   mlogCond($ch,$err,1);
+   sendError($ch,"($err)",1,'msgMaxErrors');
+   return -1;
+  }
+  return 1;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # RateLimit hash description:
@@ -3869,66 +3967,75 @@ sub checkMaxErrors {
 # event_record:
 #  added_date_delta \004 event_id \003
 sub checkRateLimit {
- my ($ch,$name,$relayok,$spamlover)=@_;
- my $this=$Con{$ch};
- return 1 if $relayok && $this->{relayok} || $this->{mISPRE} || $this->{isRelay};
- return 1 unless $EnableRateLimit;
- return 1 unless RLIBTEventEnabled($name);
- return 1 if $spamlover && $this->{allLoveRateLimitSpam};
- return 1 if $this->{mNRLRE};
- my $event=$ConfigRateLimitEvents{$name};
- my $id=$event->{id};
- my $limit=$event->{limit};
- my $interval=$event->{interval};
- my $t=time;
- my $added=$t;
- my ($blocked,$reason)=(-1)x2;
- my $ip=$RateLimitUseNetblocks ? ipNetwork($this->{ip},24) : $this->{ip};
- unless ($this->{simulating}) {
-  $RateLimit{$ip}="$added\004$blocked\004$reason\003" unless exists $RateLimit{$ip};
- }
- if ($limit>0 && $interval>0) {
-  my @a=split("\003",$RateLimit{$ip});
-  ($added,$blocked,$reason)=split("\004",shift @a);
-  my $since=$t-$added-$interval;
-  my $rec_cnt=0;
-  foreach my $s (@a) {
-   # count qualifying records
-   my ($rec_added,$rec_id)=split("\004",$s);
-   $rec_cnt++ if $rec_id==$id && $rec_added>$since;
+ my ($ch,$name,$relayok);
+ my ($this,$event,$id,$limit,$interval,$t,$added,$blocked,$reason);
+ my ($ip,@a,$since,$rec_cnt,$s,$rec_added,$rec_id,$block,$err);
+ my $sref=$Tasks{$CurTaskID}->{checkRateLimit}||=[sub{
+  ($ch,$name,$relayok)=@_;
+ },sub{&jump;
+  return 1 unless $EnableRateLimit;
+  $this=$Con{$ch};
+  return 1 if $this->{isRelay} || $relayok && $this->{relayok} || $this->{mISPRE} || $this->{mNRLRE};
+  return 1 unless RLIBTEventEnabled($name);
+  return 1 if $this->{inrcptto} && $this->{allLoveRateLimitSpam};
+  return call('L1',needExtraCheck($ch,$RateLimitExtra,$this->{white})); L1:
+  return 1 unless (shift);
+  $event=$ConfigRateLimitEvents{$name};
+  $id=$event->{id};
+  $limit=$event->{limit};
+  $interval=$event->{interval};
+  $t=time;
+  $added=$t;
+  $blocked=$reason=-1;
+  $ip=$RateLimitUseNetblocks ? ipNetwork($this->{ip},24) : $this->{ip};
+  unless ($this->{simulating}) {
+   $RateLimit{$ip}="$added\004$blocked\004$reason\003" unless exists $RateLimit{$ip};
   }
-  if ($rec_cnt>=$limit) {
-   # rate limit exceeded
-   my $block=$event->{block};
-   unless ($this->{simulating}) {
-    $RateLimit{$ip}="$added\004";
-    $RateLimit{$ip}.=($block>0 ? $t-$added : -1)."\004";
-    $RateLimit{$ip}.=($block>0 ? $id : -1)."\003";
-    $RateLimit{$ip}.=join("\003",@a)."\003" if @a;
+  if ($limit>0 && $interval>0) {
+   @a=split("\003",$RateLimit{$ip});
+   ($added,$blocked,$reason)=split("\004",shift @a);
+   $since=$t-$added-$interval;
+   $rec_cnt=0;
+   foreach $s (@a) {
+    # count qualifying records
+    ($rec_added,$rec_id)=split("\004",$s);
+    $rec_cnt++ if $rec_id==$id && $rec_added>$since;
    }
-   my $err="rate limit ($limit/".formatTimeInterval($interval).") exceeded; reason=$name";
-   $err.=', blocking client for '.formatTimeInterval($block) if $block>0;
-   mlogCond($ch,$err,$RateLimitLog);
-   slog($ch,"($err)",1,'I');
-   sendError($ch,$block>0 ? $RateLimitBlockedError : $RateLimitError,0,'msgRateLimited');
-   return -1;
+   if ($rec_cnt>=$limit) {
+    # rate limit exceeded
+    $block=$event->{block};
+    unless ($this->{simulating}) {
+     $RateLimit{$ip}="$added\004";
+     $RateLimit{$ip}.=($block>0 ? $t-$added : -1)."\004";
+     $RateLimit{$ip}.=($block>0 ? $id : -1)."\003";
+     $RateLimit{$ip}.=join("\003",@a)."\003" if @a;
+    }
+    $err="rate limit ($limit/".formatTimeInterval($interval).") exceeded; reason=$name";
+    $err.=', blocking client for '.formatTimeInterval($block) if $block>0;
+    mlogCond($ch,$err,$RateLimitLog);
+    slog($ch,"($err)",1,'I');
+    sendError($ch,$block>0 ? $RateLimitBlockedError : $RateLimitError,0,'msgRateLimited');
+    return -1;
+   }
   }
- }
- $RateLimit{$ip}.=($t-$added)."\004$id\003" unless $this->{simulating};
- return 1;
+  $RateLimit{$ip}.=($t-$added)."\004$id\003" unless $this->{simulating};
+  return 1;
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
 }
 
 # RateLimit Block checks
 sub checkRateLimitBlock {
- my ($ch,$pos,$spamlover,$np);
- my ($this,$ip,$port,$recs,@a,$added,$blocked,$reason,$event,$expires,$name,$text);
+ my ($ch,$pos);
+ my ($this,$ip,$port,$recs,@a,$added,$blocked,$reason,$event,$expires,$text);
  my $sref=$Tasks{$CurTaskID}->{checkRateLimitBlock}||=[sub{
-  ($ch,$pos,$spamlover,$np)=@_;
+  ($ch,$pos)=@_;
  },sub{&jump;
-  return 1 if $pos && $pos!=$SenderPosition;
+  return 1 if !$EnableRateLimit || $pos && $pos!=$RateLimitPosition;
   $this=$Con{$ch};
-  return 1 if $this->{relayok} || $this->{mISPRE} || $this->{mNRLRE} || !$EnableRateLimit;
-  return call('L1',needExtraCheck($ch,$RateLimitExtra,$np,$this->{white})); L1:
+  return 1 if $this->{relayok} || $this->{mISPRE} || $this->{mNRLRE};
+  return call('L1',needExtraCheck($ch,$RateLimitExtra,$this->{white})); L1:
   return 1 unless (shift);
   $ip=$this->{ip};
   $port=$this->{port};
@@ -3940,9 +4047,8 @@ sub checkRateLimitBlock {
    $event=$ConfigRateLimitEvents{$reason};
    $expires=$added+$blocked+$event->{block}-time;
    if ($expires>0) {
-    $name=$event->{name};
-    $text="blocked by RateLimit; reason=$name expires=".formatTimeInterval($expires);
-    if ($spamlover && $this->{allLoveRateLimitSpam}) {
+    $text="blocked by RateLimit; reason=$event->{name} expires=".formatTimeInterval($expires);
+    if ($this->{inrcptto} && $this->{allLoveRateLimitSpam}) {
      mlogCond($ch,"passing because spamlover(s): $this->{rcpt}, otherwise $text",$RateLimitLog && !$this->{mNLOGRE}) if $this->{indata};
     } else {
      mlogCond($ch,"$text",$RateLimitLog && !$this->{mNLOGRE});
@@ -3962,11 +4068,11 @@ sub checkRateLimitBlock {
 #####################################################################################
 #                Bayesian SPAM Detection
 
-# check if the message is spam, based on Bayesian factors in $Spamdb
-sub checkSpam {
+# check if the message is spam, based on Bayesian factors in $Bayesdb
+sub checkBayes {
  my $ch;
- my ($this,$mail,$ip,$ip3,$v,$lt,$t,$nt,%seen,%got,@t,$j,$cnt,$g,$p,$p1,$p2);
- my $sref=$Tasks{$CurTaskID}->{checkSpam}||=[sub{
+ my ($this,$mail,$ip,$ip3,$v,$lt,$t,$nt,%tmp,%got,@t,$j,$cnt,$g,$p,$p1,$p2,$sh,$total,$sfac,$tfac,$norm);
+ my $sref=$Tasks{$CurTaskID}->{checkBayes}||=[sub{
   $ch=shift;
  },sub{&jump;
   $this=$Con{$ch};
@@ -3991,7 +4097,7 @@ sub checkSpam {
     return;
    }
   }
-  $mail=clean($this->{header}."\015\012".$this->{body});
+  $mail=clean($this->{header},$this->{body});
   if ($mail=~$whiteReRE) {
    mlogCond($ch,"matches whiteRe: '$^R'",$RELog);
    return;
@@ -4007,7 +4113,7 @@ sub checkSpam {
   }
   $ip=$this->{ip};
   ($ip3)=$ip=~/(.*)\.\d+$/;
-  ($v,$lt,$t,$nt,%seen,%got,@t)=();
+  ($v,$lt,$t,$nt,%tmp,%got,@t)=();
   if (defined($Dnsbl{$ip}) || defined($Dnsbl{$ip3})) {
    mlogCond($ch,"$ip dnsbl hit",1);
    addSpamAnalysis($ch,"$ip dnsbl hit (adds 0.97 0.97)");
@@ -4028,6 +4134,13 @@ sub checkSpam {
     push(@t,$v,$v);
    }
   }
+  $sh=$this->{sh};
+  $SMTPSessions{$sh}->{tmpcorpusfn}="tmp/$SMTPSessions{$sh}->{id}".'_'.($SMTPSessions{$sh}->{msgcnt}+1).'.db';
+  tie(%tmp,DB_File,"$base/$SMTPSessions{$sh}->{tmpcorpusfn}");
+  $total=0;
+  # calculate norm value
+  ($sfac,$tfac)=split(' ',$Bayesdb{total});
+  $norm=$tfac>$sfac ? $sfac/($tfac-$sfac) : 1;
   while ($mail=~/([-\$A-Za-z0-9\'\.!\240-\377]+)/g) {
    $nt=$1;
    return cede('L1',1); L1:
@@ -4040,11 +4153,27 @@ sub checkSpam {
    $lt=$t;
    $t=$nt;
    next unless length($lt)>1 || ($lt && length($t)>1);
+   $total++;
    $j="$lt $t";
-   next if $seen{$j}++>1; # first two occurances are significant
-   push(@t,$v) if $v=$Spamdb{$j};
-   $got{$j}=$v if $v;
+   next if $tmp{$j}++>1; # first two occurances are significant
+   next unless exists $Bayesdb{$j};
+   ($sfac,$tfac)=split(' ',$Bayesdb{$j});
+   $tfac=($tfac-$sfac)*$norm+$sfac; # normalize tfac
+##   next if $tfac<5;
+   if ($sfac==$tfac || $sfac==0) {
+    # if token represents all spam or all ham then square its value
+    $sfac=$sfac*$sfac;
+    $tfac=$tfac*$tfac;
+   }
+   $v=(1+$sfac)/($tfac+2);
+   $v=0.9999999 if $v>0.9999999;
+   $v=0.0000001 if $v<0.0000001;
+   next if abs($v-0.5)<=0.09;
+   push(@t,$v);
+   $got{$j}=$v;
   }
+  $tmp{total}=$total; # store word-pairs total count
+  untie %tmp;
   $cnt=0;
   ($g)=();
   foreach (sort {abs($got{$b}-.5)<=>abs($got{$a}-.5)} keys %got) {
@@ -4094,60 +4223,189 @@ sub addSpamAnalysis {
 #                collectMail functions
 
 # find an appropriate name for a collection file
-sub getNewCollFileName {
+sub collNewFileName {
  my $maillog=shift;
  my $fn;
- my $tries=3;
+ my $tries=3; # retry up to 3 times
  if ($FilesDistribution<1.0) {
   my $p1=1.0-$FilesDistribution;
   my $p2=log($FilesDistribution);
   for (my $i=0;$i<$tries;$i++) {
-   $fn=int($MaxFiles*log(1.0-rand($p1))/$p2);
-   last unless -s "$base/$maillog/$fn$maillogExt";
+   do { # file name must not be locked
+    $fn="$maillog/".int($MaxFiles*log(1.0-rand($p1))/$p2).'.db';
+   } while (exists $CollLocks{$fn});
+   last unless -s "$base/$fn";
   }
  } else {
   for (my $i=0;$i<$tries;$i++) {
-   $fn=int($MaxFiles*rand());
-   last unless -s "$base/$maillog/$fn$maillogExt";
+   do { # file name must not be locked
+    $fn="$maillog/".int($MaxFiles*rand()).'.db';
+   } while (exists $CollLocks{$fn});
+   last unless -s "$base/$fn";
   }
  }
  return $fn;
 }
 
-sub collectMail {
- my $ch;
- my ($this,$maillog,$fn,$fh,$h,$det,$sf,$flags);
- my $sref=$Tasks{$CurTaskID}->{collectMail}||=[sub{
-  $ch=shift;
+# move collection file and bayesian contribution
+sub collMoveFile {
+ my ($fn,$coll,$coll2);
+ my (%tmp,$k,$v,$sfac,$tfac,$fac,$isspam,$fac2,$isspam2,$fn2);
+ my $sref=$Tasks{$CurTaskID}->{collMoveFile}||=[sub{
+  ($fn,$coll,$coll2)=@_;
  },sub{&jump;
-  $this=$Con{$ch};
-  $maillog=${$Collections{$this->{coll}}->[0]};
-  $fn=getNewCollFileName($maillog);
-  $fn="$maillog/$fn$maillogExt";
-  if (open($fh,'>',"$base/$fn")) {
-   binmode $fh;
-   print $fh $this->{header};
-   # add X-Intended-For: header
-   print $fh "X-Intended-For: $this->{rcpt}\015\012";
-   # sort & merge our header
-   foreach $h (@MyHeaders) {
-    print $fh $1 if $this->{myheader}=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
+  if (exists $CollLocks{$fn}) {
+   mlog(0,"file name locked while moving/deleting corpus file '$base/$fn'");
+   return '';
+  }
+  # lock first file name
+  $CollLocks{$fn}=1;
+  # calculate effective factors
+  $isspam=$fac=$isspam2=$fac2=0;
+  ($isspam,$fac)=@{$CollectionOptions{$coll}} if $coll;
+  ($isspam2,$fac2)=@{$CollectionOptions{$coll2}} if $coll2;
+  ($fac,$fac2)=(($isspam2 ? $fac2 : 0)-($isspam ? $fac : 0),$fac2-$fac);
+  if ($fac || $fac2) {
+   # move contribution
+   unless (tie(%tmp,DB_File,"$base/$fn",O_RDONLY)) {
+    mlog(0,"failed to open corpus file for reading '$base/$fn'");
+    # unlock first file name
+    delete $CollLocks{$fn};
+    return '';
    }
-   print $fh "\015\012$this->{body}";
-   close $fh;
+   while (($k,$v)=each(%tmp)) {
+    return cede('L1',1); L1:
+    next if $k=~/^_/;
+    ($sfac,$tfac)=split(' ',$Bayesdb{$k});
+    $sfac+=$v*$fac;
+    $tfac+=$v*$fac2;
+    if ($sfac<0 || $tfac<0) {
+     # corruption detected
+     mlog(0,"Bayesian DB corruption detected in key:'$k' sfac:$sfac tfac:$tfac");
+     delete $Bayesdb{$k};
+    } elsif ($tfac==0) {
+     delete $Bayesdb{$k};
+    } else {
+     $Bayesdb{$k}="$sfac $tfac";
+    }
+   }
+   untie %tmp;
+  }
+  if ($coll2) {
+   $fn2=collNewFileName(${$coll2});
+   # lock second file name
+   $CollLocks{$fn2}=1;
+   if (-e "$base/$fn2") {
+    # remove previous contribution
+    ($isspam2,$fac2)=@{$CollectionOptions{$coll2}} if $coll2;
+    if (tie(%tmp,DB_File,"$base/$fn2",O_RDONLY)) {
+     while (($k,$v)=each(%tmp)) {
+      return cede('L2',1); L2:
+      next if $k=~/^_/;
+      unless (exists $Bayesdb{$k}) {
+       # corruption detected
+       mlog(0,"Bayesian DB corruption detected - no such key:'$k'");
+       next;
+      }
+      ($sfac,$tfac)=split(' ',$Bayesdb{$k});
+      $v*=$fac2;
+      $sfac-=$isspam2 ? $v : 0;
+      $tfac-=$v;
+      if ($sfac<0 || $tfac<0) {
+       # corruption detected
+       mlog(0,"Bayesian DB corruption detected in key:'$k' sfac:$sfac tfac:$tfac");
+       delete $Bayesdb{$k};
+      } elsif ($tfac==0) {
+       delete $Bayesdb{$k};
+      } else {
+       $Bayesdb{$k}="$sfac $tfac";
+      }
+     }
+     untie %tmp;
+    } else {
+     mlog(0,"failed to open corpus file for reading '$base/$fn2'");
+     # fixme best is to continue?
+    }
+    unlink("$base/$fn2") || mlog(0,"failed to delete corpus file '$base/$fn2': $!");
+   }
+   rename("$base/$fn","$base/$fn2") || mlog(0,"failed to move corpus file from '$base/$fn' to '$base/$fn2': $!");
+   # unlock second file name
+   delete $CollLocks{$fn2};
+  } else {
+   # just delete first file
+   unlink("$base/$fn") || mlog(0,"failed to delete corpus file '$base/$fn': $!");
+  }
+  # unlock first file name
+  delete $CollLocks{$fn};
+  return $coll2 ? $fn2 : '';
+ }];
+ &{$sref->[0]};
+ return $sref->[1];
+}
+
+sub taskCollectMail {
+ my $ch=shift;
+ my $this=$Con{$ch};
+ my $sh=$this->{sh};
+ # take over tmp corpus file
+ my $tmpfn=$SMTPSessions{$sh}->{tmpcorpusfn};
+ delete $SMTPSessions{$sh}->{tmpcorpusfn};
+ my $id=$SMTPSessions{$sh}->{id};
+ my $msgcnt=$SMTPSessions{$sh}->{msgcnt};
+ my $collno=$this->{collno};
+ my $header=$this->{header};
+ my $rcpt=$this->{rcpt};
+ my $myheader=$this->{myheader};
+ my $body=$this->{body};
+ my $sf=$this->{spamfound};
+ my ($h,$mail,$nt,$lt,$t,%tmp,$total,$fn,$det,$flags);
+ return ['taskCollectMail',sub{&jump;
+  # add X-Intended-For: header
+  $header.="X-Intended-For: $rcpt\015\012";
+  # sort & merge our header
+  foreach $h (@MyHeaders) {
+   $header.=$1 if $myheader=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
+  }
+  if ($tmpfn) {
+   # corpus db file was generated by checkBayes()
+   tie(%tmp,DB_File,"$base/$tmpfn");
+  } else {
+   # generate corpus db file now
+   $tmpfn="tmp/$id"."_$msgcnt.db";
+   tie(%tmp,DB_File,"$base/$tmpfn");
+   $total=0;
+   $mail=clean($header,$body);
+   while ($mail=~/([-\$A-Za-z0-9\'\.!\240-\377]+)/g) {
+    $nt=$1;
+    return cede('L1',1); L1:
+    next if length($nt)>20 || length($nt)<2;
+    $nt=lc $nt;
+    $nt=~s/[,.']+$//;
+    $nt=~s/!!!+/!!/g;
+    $nt=~s/--+/-/g;
+    next unless $nt;
+    $lt=$t;
+    $t=$nt;
+    next unless length($lt)>1 || ($lt && length($t)>1);
+    $total++;
+    $tmp{"$lt $t"}++;
+   }
+   $tmp{total}=$total; # store word-pairs total count
+  }
+  # store message
+  $tmp{_header}=$header;
+  $tmp{_body}=$body;
+  untie %tmp;
+  return call('L2',collMoveFile($tmpfn,'',$CollectModeOptions{$collno}->[0])); L2:
+  if ($fn=shift) {
    # update Corpus cache
    $det=corpusDetails($fn,1);
-   $sf=$this->{spamfound};
    $flags=$det->[4];
    $flags|=4 if $sf; # set 'is-spam' bit
    $flags|=8 unless $sf & 4; # set 'passed-message' bit
    corpusSetFlags($fn,$flags);
-  } else {
-   mlog($ch,"failed to open collection file for writing '$base/$fn': $!");
   }
  }];
- &{$sref->[0]};
- return $sref->[1];
 }
 
 #####################################################################################
@@ -4157,16 +4415,16 @@ sub taskForwardMail {
  my $ch=shift;
  my $this=$Con{$ch};
  my $sh=$this->{sh};
- # take over tmp file
- my $tmpfn=$SMTPSessions{$sh}->{tmpfn};
- delete $SMTPSessions{$sh}->{tmpfn};
+ # take over tmpbody file
+ my $tmpfn=$SMTPSessions{$sh}->{tmpbodyfn};
+ delete $SMTPSessions{$sh}->{tmpbodyfn};
  my $sf=$this->{spamfound};
  my $mailfrom=$this->{mailfrom};
  my $rcpt=$this->{rcpt};
  my $header=$this->{header};
  my $myheader=$this->{myheader};
  my $tag=$Con{$ch}->{tag};
- my ($to,$c,$s,$a,$tmpfh,$sub,$h);
+ my ($to,$c,$s,$a,$fh,$sub,$h,$e,$tt,$tt2);
  return ['taskForwardMail',sub{&jump;
   $to=($sf & 4) ? $ccBlocked : $sf ? $ccSpam : $ccHam;
   unless ($to) {
@@ -4188,23 +4446,23 @@ sub taskForwardMail {
    unlink("$base/$tmpfn");
    return;
   }
-  unless (open($tmpfh,'<',"$base/$tmpfn")) {
-   mlog(0,"failed to open tmp file for reading '$base/$tmpfn': $!");
+  unless (open($fh,'<',"$base/$tmpfn")) {
+   mlog(0,"failed to open tmp body file for reading '$base/$tmpfn': $!");
    return;
   }
-  binmode $tmpfh;
-  $Con{$tmpfh}={};
-  $this=$Con{$tmpfh};
+  binmode $fh;
+  $Con{$fh}={};
+  $this=$Con{$fh};
   $this->{friend}=$s;
   $this->{itid}=$this->{otid}=$CurTaskID;
   $this->{isServer}=1; ## fixme ?
-  addfh($s,\&FShelo,$tmpfh);
+  addfh($s,'FMhelo',$fh);
   $this=$Con{$s};
   $this->{isServer}=1;
   # add SMTP session
   addSession($s);
   # set session handle (sh)
-  $this->{sh}=$Con{$tmpfh}->{sh}=$s;
+  $this->{sh}=$Con{$fh}->{sh}=$s;
   slog($s,"(connected $smtpDestination)",1,'I');
   $this->{helo}=$myName;
   $this->{mailfrom}=$mailfrom;
@@ -4229,30 +4487,47 @@ sub taskForwardMail {
   if ($sub && $this->{header}!~/^Subject$HeaderSepRe\Q$sub\E /im) {
    $this->{header}=~s/^Subject$HeaderSepRe/Subject: $sub /gimo; # rewrite all Subject: headers
   }
+  # try to unwind To: header to original email address
+  if ($CanUseSRS && $EnableSRS && (($e)=$this->{header}=~/^To$HeaderSepRe($HeaderValueRe)/imo)) {
+   $srs=new Mail::SRS(Secret=>$SRSSecretKey,
+                      MaxAge=>$SRSTimestampMaxAge,
+                      HashLength=>$SRSHashLength,
+                      AlwaysRewrite=>1);
+   if ($e=~/<?(SRS0[=+-][^\015\012>]*).*/i) {
+    if (eval{$tt=$srs->reverse($1)}) {
+     $e=~s/\Q$1\E/$tt/;
+    }
+   } elsif ($e=~/^<?(SRS1[=+-][^\015\012>]*).*/i) {
+    if (eval{$tt=$srs->reverse($1)} && eval{$tt2=$srs->reverse($tt)}) {
+     $e=~s/\Q$1\E/$tt2/;
+    }
+   }
+   $this->{header}=~s/^To$HeaderSepValueRe/To: $e/imo;
+  }
   # add X-Intended-For: header
   $this->{header}.="X-Intended-For: $rcpt\015\012";
   # sort & merge our header
   foreach $h (@MyHeaders) {
    $this->{header}.=$1 if $myheader=~/^(X-Assp-\Q$h\E$HeaderSepValueCRLFRe)/m;
   }
-  $SMTPSessions{$s}->{tmpfn}=$tmpfn;
-  $SMTPSessions{$s}->{tmpfh}=$tmpfh;
+  $SMTPSessions{$s}->{tmpbodyfn}=$tmpfn;
+  $SMTPSessions{$s}->{tmpbodyfh}=$fh;
   $this->{inenvelope}=1;
  }];
 }
 
-sub FShelo {
+sub FMhelo {
  my ($ch,$l);
  my $this;
- my $sref=$Tasks{$CurTaskID}->{FShelo}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMhelo}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   if ($l=~/^ *5/) {
-   FSabort($ch,"helo Expected 220, got: $l");
+   FMabort($ch,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
    $this=$Con{$ch};
-   $this->{getline}=\&FSfrom;
+   $this->{getline}='FMfrom';
    sayque($ch,"HELO $this->{helo}");
   }
  }];
@@ -4260,18 +4535,18 @@ sub FShelo {
  return $sref->[1];
 }
 
-sub FSfrom {
+sub FMfrom {
  my ($ch,$l);
  my $this;
- my $sref=$Tasks{$CurTaskID}->{FSfrom}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMfrom}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   if ($l=~/^ *5/) {
-   FSabort($ch,"from Expected 250, got: $l");
+   FMabort($ch,"from Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $this=$Con{$ch};
-   $this->{getline}=\&FSrcpt;
+   $this->{getline}='FMrcpt';
    sayque($ch,"MAIL FROM:<$this->{mailfrom}>");
    $this->{inmailfrom}=1;
   }
@@ -4280,16 +4555,16 @@ sub FSfrom {
  return $sref->[1];
 }
 
-sub FSrcpt {
+sub FMrcpt {
  my ($ch,$l);
- my $sref=$Tasks{$CurTaskID}->{FSrcpt}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMrcpt}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   if ($l=~/^ *5/) {
-   FSabort($ch,"rcpt Expected 250, got: $l");
+   FMabort($ch,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
-   $Con{$ch}->{getline}=\&FSdata;
+   $Con{$ch}->{getline}='FMdata';
    sayque($ch,"RCPT TO:<$Con{$ch}->{rcpt}>");
   }
  }];
@@ -4297,16 +4572,16 @@ sub FSrcpt {
  return $sref->[1];
 }
 
-sub FSdata {
+sub FMdata {
  my ($ch,$l);
- my $sref=$Tasks{$CurTaskID}->{FSdata}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMdata}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   if ($l=~/^ *5/) {
-   FSabort($ch,"data Expected 250, got: $l");
+   FMabort($ch,"data Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
-   $Con{$ch}->{getline}=\&FSdata2;
+   $Con{$ch}->{getline}='FMdata2';
    sayque($ch,'DATA');
   }
  }];
@@ -4314,19 +4589,19 @@ sub FSdata {
  return $sref->[1];
 }
 
-sub FSdata2 {
+sub FMdata2 {
  my ($ch,$l);
- my ($this,$h,$pos,$str,$len,$tmpfh);
- my $sref=$Tasks{$CurTaskID}->{FSdata2}||=[sub{
+ my ($this,$h,$pos,$str,$len,$fh);
+ my $sref=$Tasks{$CurTaskID}->{FMdata2}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   if ($l=~/^ *5/) {
-   FSabort($ch,"data2 Expected 354, got: $l");
+   FMabort($ch,"data2 Expected 354, got: $l");
   } elsif ($l=~/^ *354 /) {
    $this=$Con{$ch};
-   $this->{indata}=1;
-   $this->{getline}=\&FSdone;
+   $this->{indata}=$this->{inpass}=1;
+   $this->{getline}='FMdone';
    $this->{header}.="\015\012";
    # send header
    $pos=0;
@@ -4339,9 +4614,9 @@ sub FSdata2 {
     return cede('L1',1); L1:
    }
    # send body
-   $tmpfh=$SMTPSessions{$ch}->{tmpfh};
+   $fh=$SMTPSessions{$ch}->{tmpbodyfh};
    while (1) {
-    $len=read($tmpfh,$str,$IncomingBufSize);
+    $len=read($fh,$str,$IncomingBufSize);
     last unless $len;
     $pos+=$len;
     sendque($ch,$str);
@@ -4354,20 +4629,20 @@ sub FSdata2 {
  return $sref->[1];
 }
 
-sub FSdone {
+sub FMdone {
  my ($ch,$l);
  my $this;
- my $sref=$Tasks{$CurTaskID}->{FSdone}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMdone}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
   $this=$Con{$ch};
-  $this->{indata}=0;
+  $this->{indata}=$this->{inpass}=0;
   if ($l=~/^ *5/) {
-   FSabort($ch,"done Expected 250, got: $l");
+   FMabort($ch,"done Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    doneStats($ch,1,'cc');
-   $this->{getline}=\&FSquit;
+   $this->{getline}='FMquit';
    sayque($ch,'QUIT');
   }
  }];
@@ -4375,17 +4650,18 @@ sub FSdone {
  return $sref->[1];
 }
 
-sub FSabort {
+sub FMabort {
  my ($ch,$l)=@_;
+ my $this=$Con{$ch};
  mlog(0,"FSabort: $l");
  doneStats($ch,0,'cc');
- $this->{getline}=\&FSquit;
+ $this->{getline}='FMquit';
  sayque($ch,'QUIT');
 }
 
-sub FSquit {
+sub FMquit {
  my ($ch,$l);
- my $sref=$Tasks{$CurTaskID}->{FSquit}||=[sub{
+ my $sref=$Tasks{$CurTaskID}->{FMquit}||=[sub{
   ($ch,$l)=@_;
  },sub{&jump;
   slog($ch,$l);
@@ -4409,14 +4685,9 @@ sub spamReport {
   $this=$Con{$ch};
   $server=$this->{friend};
   slog($ch,$l);
-  if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
-   if ($1) {
-    $this->{bdata}=$1;
-   } else {
-    delete $this->{bdata};
-   }
-   $this->{indata}=1;
-   $this->{getline}=\&spamReportBody;
+  if ($l=~/^ *DATA/i) {
+   $this->{indata}=$this->{inpass}=1;
+   $this->{getline}='spamReportBody';
    $report=($this->{reporttype}==0) ? 'spam' : 'ham';
    sayque($ch,"354 OK Send $report body");
    return;
@@ -4427,9 +4698,6 @@ sub spamReport {
   } elsif ($l=~/^ *QUIT/i) {
    stateReset($ch);
    sayque($server,'QUIT');
-   return;
-  } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-   sayque($ch,'504 Need to authenticate first');
    return;
   }
   sayque($ch,'250 OK');
@@ -4448,11 +4716,11 @@ sub spamReportBody {
   $this=$Con{$ch};
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  if ($l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0) {
+  if ($l=~/^\.(?:\015\012)?$/) {
    # we're done -- write the file & clean up
    slog($ch,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    return call('L1',spamReportExec($ch)); L1:
-   newTask(taskReturnMail($ch,' '.(shift)),'NORM','S') unless $NoHaikuCorrection;
+   newTask(taskReturnMail($ch,' '.(shift)),'IDLE','S') unless $NoHaikuCorrection;
    doneStats($ch,1,'reports');
    stateReset($ch);
    sayque($this->{friend},'RSET');
@@ -4529,14 +4797,9 @@ sub listReport {
   $this=$Con{$ch};
   $server=$this->{friend};
   slog($ch,$l);
-  if ($l=~/^ *(?:DATA|BDAT (\d+))/i) {
-   if ($1) {
-    $this->{bdata}=$1;
-   } else {
-    delete $this->{bdata};
-   }
-   $this->{indata}=1;
-   $this->{getline}=\&listReportBody;
+  if ($l=~/^ *DATA/i) {
+   $this->{indata}=$this->{inpass}=1;
+   $this->{getline}='listReportBody';
    $list=(($this->{reporttype} & 4)==0) ? 'whitelist' : 'redlist';
    sayque($ch,"354 OK Send $list body");
    return;
@@ -4547,9 +4810,6 @@ sub listReport {
   } elsif ($l=~/^ *QUIT/i) {
    stateReset($ch);
    sayque($server,'QUIT');
-   return;
-  } elsif ($l=~/^ *XEXCH50 +(\d+)/i) {
-   sayque($ch,'504 Need to authenticate first');
    return;
   } else {
    # more recipients ?
@@ -4574,11 +4834,11 @@ sub listReportBody {
   $this=$Con{$ch};
   $this->{body}.=$l;
   $this->{maillength}+=length($l);
-  if ($l=~/^\.(?:\015\012)?$/ || defined($this->{bdata}) && $this->{bdata}<=0) {
+  if ($l=~/^\.(?:\015\012)?$/) {
    # mail summary report
    slog($ch,'('.needEs($this->{maillength},' byte','s').' received)',0,'I');
    $nhl=(($this->{reporttype} & 4)==0) ? $NoHaikuWhitelist : $NoHaikuRedlist;
-   newTask(taskReturnMail($ch,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012"),'NORM','S') unless $nhl;
+   newTask(taskReturnMail($ch,'',"$this->{rcpt}\015\012\015\012$this->{report}\015\012"),'IDLE','S') unless $nhl;
    delete $this->{report};
    doneStats($ch,1,'reports');
    stateReset($ch);
@@ -4642,7 +4902,7 @@ sub taskReturnMail {
  return ['taskReturnMail',sub{&jump;
   return call('L1',newConnect($smtpDestination,2,'server','ReturnMail connection')); L1:
   return unless $s=shift;
-  addfh($s,\&RMhelo);
+  addfh($s,'RMhelo');
   $this=$Con{$s};
   $this->{isServer}=1;
   # add SMTP session
@@ -4695,7 +4955,7 @@ sub RMhelo {
    RMabort($ch,"helo Expected 220, got: $l");
   } elsif ($l=~/^ *220 /) {
    $this=$Con{$ch};
-   $this->{getline}=\&RMfrom;
+   $this->{getline}='RMfrom';
    sayque($ch,"HELO $this->{helo}");
   }
  }];
@@ -4714,7 +4974,7 @@ sub RMfrom {
    RMabort($ch,"from Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $this=$Con{$ch};
-   $this->{getline}=\&RMrcpt;
+   $this->{getline}='RMrcpt';
    $from=$this->{mailfrom}=~/(<[^<>]+>)/ ? $1 : $this->{mailfrom};
    sayque($ch,"MAIL FROM:$from");
    $this->{inmailfrom}=1;
@@ -4735,7 +4995,7 @@ sub RMrcpt {
    RMabort($ch,"rcpt Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    $this=$Con{$ch};
-   $this->{getline}=\&RMdata;
+   $this->{getline}='RMdata';
    sayque($ch,"RCPT TO:<$this->{rcpt}>");
   }
  }];
@@ -4752,7 +5012,7 @@ sub RMdata {
   if ($l=~/^ *5/) {
    RMabort($ch,"data Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
-   $Con{$ch}->{getline}=\&RMdata2;
+   $Con{$ch}->{getline}='RMdata2';
    sayque($ch,'DATA');
   }
  }];
@@ -4771,8 +5031,8 @@ sub RMdata2 {
    RMabort($ch,"data2 Expected 354, got: $l");
   } elsif ($l=~/^ *354 /) {
    $this=$Con{$ch};
-   $this->{indata}=1;
-   $this->{getline}=\&RMdone;
+   $this->{indata}=$this->{inpass}=1;
+   $this->{getline}='RMdone';
    $s="$this->{header}\015\012".
       "$this->{body}\015\012.\015\012";
    sendque($ch,$s);
@@ -4791,12 +5051,12 @@ sub RMdone {
  },sub{&jump;
   slog($ch,$l);
   $this=$Con{$ch};
-  $this->{indata}=0;
+  $this->{indata}=$this->{inpass}=0;
   if ($l=~/^ *5/) {
    RMabort($ch,"done Expected 250, got: $l");
   } elsif ($l=~/^ *250 /) {
    doneStats($ch,1,'reportreturns');
-   $this->{getline}=\&RMquit;
+   $this->{getline}='RMquit';
    sayque($ch,'QUIT');
   }
  }];
@@ -4806,9 +5066,10 @@ sub RMdone {
 
 sub RMabort {
  my ($ch,$l)=@_;
+ my $this=$Con{$ch};
  mlog(0,"RMabort: $l");
  doneStats($ch,0,'reportreturns');
- $this->{getline}=\&RMquit;
+ $this->{getline}='RMquit';
  sayque($ch,'QUIT');
 }
 
@@ -4905,7 +5166,7 @@ Host: assp.sourceforge.net
     if ($GreylistObject) {
      $GreylistObject->resetCache();
     } else {
-     $GreylistObject=tie %Greylist,orderedtie,"$base/$greylist" if $greylist;
+     $GreylistObject=tie(%Greylist,orderedtie,"$base/$greylist") if $greylist;
     }
     last;
    }
@@ -5129,7 +5390,7 @@ sub resetStats {
  $Stats{taskMaxTimeUser}=0;
  $Stats{taskMaxActive}=0;
  foreach my $p ('high','norm','idle','wait','suspend') {
-  $KernelStats{"max_$p_queue"}=$Stats{'taskMaxQueue'.ucfirst($p)}=0;
+  $KernelStats{'max_'.$p.'_queue'}=$Stats{'taskMaxQueue'.ucfirst($p)}=0;
  }
  $KernelStats{max_queue}=$Stats{taskMaxQueue}=0;
  if (open(F,'<',"$base/data/asspstats.sav")) {
@@ -5606,6 +5867,8 @@ sub dumpSlog {
     my $mm=sprintf("%02d-%02d-%02d",$year,$mon,$mday);
     $mm.=sprintf("-%02d",$hour) unless int($LogRollDays)==$LogRollDays;
     my $archiveslogfile=$slogfile; $archiveslogfile=~s/(.*[\\\/]|)/$1$mm\./;
+    my $m=localtime();
+    $m=~s/^... (...) +(\d+) (\S+) ..(..)/$1-$2-$4 $3 /;
     my $msg=$m."Rolling session log file -- archive saved as '$archiveslogfile'\n";
     print SLOG $msg;
     print $msg unless $silent;
@@ -5639,11 +5902,19 @@ sub saveDatabases {
   $done=shift;
  },sub{&jump;
   mlog(0,'saving databases') if $MaintenanceLog;
-  @objs=($WhitelistObject,$RedlistObject,$DelayObject,$DelayWhiteObject,$RateLimitObject,$CorpusObject);
+  # save modified orderedtie objects
+  @objs=($WhitelistObject,$RedlistObject,$DelayObject,$DelayWhiteObject,$RateLimitObject);
   for ($n=0;$n<@objs;$n++) {
    return cede('L1',1) unless $done; L1:
    $obj=$objs[$n];
    $obj->flush() if $obj;
+  }
+  # save modified DB_File objects
+  @objs=($BayesdbObject,$CorpusObject);
+  for ($n=0;$n<@objs;$n++) {
+   return cede('L2',1) unless $done; L2:
+   $obj=$objs[$n];
+   $obj->sync() if $obj;
   }
   saveStats($done);
  }];
@@ -5867,11 +6138,7 @@ sub newConnect {
   $sock=new IO::Socket::INET(Proto=>'tcp');
   unless ($sock) {
    $l="couldn't create $msg1 to '$addr' -- aborting $msg2";
-   if ($ch) {
-    mlogCond($ch,$l,$log);
-   } else {
-    mlog(0,$l);
-   }
+   $ch ? mlogCond($ch,$l,$log) : mlog(0,$l);
    return 0;
   }
   # make socket non-blocking while connecting
@@ -5880,11 +6147,7 @@ sub newConnect {
   ($addr,$port)=$dest=~/^(.*?)(?::(\d+))?$/;
   unless ($addr2=inet_aton($addr)) {
    $l="couldn't resolve '$addr' -- aborting $msg2";
-   if ($ch) {
-    mlogCond($ch,$l,$log);
-   } else {
-    mlog(0,$l);
-   }
+   $ch ? mlogCond($ch,$l,$log) : mlog(0,$l);
    return 0;
   }
   $sock->connect($port,$addr2);
@@ -5894,11 +6157,7 @@ sub newConnect {
    # connection timed out
    $sock->close();
    $l="timeout while connecting to '$dest' -- aborting $msg2";
-   if ($ch) {
-    mlogCond($ch,$l,$log);
-   } else {
-    mlog(0,$l);
-   }
+   $ch ? mlogCond($ch,$l,$log) : mlog(0,$l);
    return 0;
   }
   # return blocking socket
@@ -5913,59 +6172,77 @@ sub newConnect {
 sub openDatabases {
  my $force=shift;
  # put this after chroot so the paths don't change
- if ($ConfigChanged{spamdb} || $force) {
-  if ($spamdb) {
-   mlog(0,"warning: Bayesian spam database is small or empty: '$base/$spamdb'") if -s "$base/$spamdb"<10000;
-   $SpamdbObject=tie %Spamdb,orderedtie,"$base/$spamdb";
-   $HeloBlackObject=tie %HeloBlack,orderedtie,"$base/$spamdb.helo";
+ if ($ConfigChanged{bayesdb} || $force) {
+  if ($bayesdb) {
+   mlog(0,"warning: Bayesian spam database is empty: '$base/$bayesdb'") unless -e "$base/$bayesdb";
+   $BayesdbObject=tie(%Bayesdb,DB_File,"$base/$bayesdb");
+   $HeloBlackObject=tie(%HeloBlack,orderedtie,"$base/$spamdb.helo"); ## fixme $spamdb
   } else {
-   untie %Spamdb;
-   untie %HeloBlack;
-   undef $SpamdbObject;
+   undef $BayesdbObject;
    undef $HeloBlackObject;
+   untie %Bayesdb;
+   untie %HeloBlack;
   }
  }
  if ($ConfigChanged{dnsbl} || $force) {
   if ($dnsbl) {
    mlog(0,"warning: DNS blacklist database is small or empty: '$base/$dnsbl'") if -s "$base/$dnsbl"<10000;
-   $DnsblObject=tie %Dnsbl,orderedtie,"$base/$dnsbl";
+   $DnsblObject=tie(%Dnsbl,orderedtie,"$base/$dnsbl");
   } else {
-   untie %Dnsbl;
    undef $DnsblObject;
+   untie %Dnsbl;
   }
  }
  if ($ConfigChanged{whitelistdb} || $force) {
   if ($whitelistdb) {
    mlog(0,"warning: whitelist is small or empty: '$base/$whitelistdb' (ignore if this is a new install)") if -s "$base/$whitelistdb"<1000;
-   $WhitelistObject=tie %Whitelist,orderedtie,"$base/$whitelistdb";
+   $WhitelistObject=tie(%Whitelist,orderedtie,"$base/$whitelistdb");
+  } else {
+   undef $WhitelistObject;
+   untie %Whitelist;
   }
  }
  if ($ConfigChanged{redlistdb} || $force) {
-  $RedlistObject=tie %Redlist,orderedtie,"$base/$redlistdb" if $redlistdb;
+  if ($redlistdb) {
+   $RedlistObject=tie(%Redlist,orderedtie,"$base/$redlistdb");
+  } else {
+   undef $RedlistObject;
+   untie %Redlist;
+  }
  }
  if ($ConfigChanged{greylist} || $force) {
   if ($greylist) {
-   $GreylistObject=tie %Greylist,orderedtie,"$base/$greylist";
+   $GreylistObject=tie(%Greylist,orderedtie,"$base/$greylist");
   } else {
-   untie %Greylist;
    undef $GreylistObject;
+   untie %Greylist;
   }
  }
  if ($ConfigChanged{delaydb} || $force) {
   if ($delaydb) {
-   $DelayObject=tie %Delay,orderedtie,"$base/$delaydb";
-   $DelayWhiteObject=tie %DelayWhite,orderedtie,"$base/$delaydb.white";
+   $DelayObject=tie(%Delay,orderedtie,"$base/$delaydb");
+   $DelayWhiteObject=tie(%DelayWhite,orderedtie,"$base/$delaydb.white");
+  } else {
+   undef $DelayObject;
+   undef $DelayWhiteObject;
+   untie %Delay;
+   untie %DelayWhite;
   }
  }
  if ($ConfigChanged{ratelimitdb} || $force) {
-  $RateLimitObject=tie %RateLimit,orderedtie,"$base/$ratelimitdb" if $ratelimitdb;
+  if ($ratelimitdb) {
+   $RateLimitObject=tie(%RateLimit,orderedtie,"$base/$ratelimitdb");
+  } else {
+   undef $RateLimitObject;
+   untie %RateLimit;
+  }
  }
  if ($ConfigChanged{corpusdb} || $ConfigChanged{EnableCorpusInterface} || $force) {
   if ($corpusdb && $EnableCorpusInterface) {
-   $CorpusObject=tie %Corpus,orderedtie,"$base/$corpusdb";
+   $CorpusObject=tie(%Corpus,DB_File,"$base/$corpusdb");
   } else {
-   untie %Corpus;
    undef $CorpusObject;
+   untie %Corpus;
   }
  }
 }
@@ -6017,37 +6294,6 @@ sub configReload {
    my $oldfh=select(SLOG); $|=1; select($oldfh);
    mlog(0,'sessions logfile reopened');
   }
- }
-}
-
-sub ok2Relay {
- my $ch=shift;
- my $this=$Con{$ch};
- return 1 if $this->{mAMRE};
- my $ip=$this->{ip};
- if ($relayHostFile) {
-  check4update(relayHostFile);
-  return 1 if $relayHostFile{$ip};
- }
- return 1 if PopB4SMTP($ip);
- # failed all tests -- return 0
- return 0;
-}
-
-sub PopB4SMTP {
- return 0 unless $PopB4SMTPFile;
- unless ($TriedDBFileUse) {
-  eval('use DB_File');
-  mlog(0,"could not load module DB_File: $@") if $@;
-  $TriedDBFileUse=1;
- }
- my $ip=shift;
- my %hash;
- tie %hash, 'DB_File', $PopB4SMTPFile, O_READ, 0400, $DB_HASH;
- if ($hash{$ip}) {
-  return 1;
- } else {
-  return 0;
  }
 }
 
@@ -6111,7 +6357,7 @@ sub restart {
 sub corpus {
  return unless $EnableCorpusInterface;
  my ($fn,$force)=@_;
- if ($force || !exists ($Corpus{$fn})) {
+ if ($force || !exists $Corpus{$fn}) {
   if (-f "$base/$fn") {
    $Corpus{$fn}=[stat("$base/$fn")]->[9]; # clear other fields (subject,from,to,flags)
   } else {
@@ -6129,12 +6375,10 @@ sub corpusDetails {
  my $c=corpus($fn,$force);
  return [undef] unless defined $c->[0];
  if ($force || !defined ($c->[1])) {
-  open(my $fh,'<',"$base/$fn");
-  binmode $fh;
-  local $/="\015\012\015\012"; # get only headers
-  my $h=<$fh>;
-  undef $/;
-  close $fh;
+  my %tmp;
+  tie(%tmp,DB_File,"$base/$fn");
+  my $h=$tmp{_header};
+  untie %tmp;
   my $a;
   if ($h=~/^From$HeaderSepRe($HeaderValueRe)/imo ||
       $h=~/^X-Assp-Envelope-From$HeaderSepRe($HeaderValueRe)/imo) {
@@ -6449,7 +6693,7 @@ sub lookup {
     @{$self->{lists}}[$i,$j]=@{$self->{lists}}[$j,$i];
    }
   }
-  %times={};
+  (%times)=();
   if ($self->{query_txt}) {
    foreach $list(@{$self->{lists}}) {
     ($msg_a, $msg_t)=mk_packet($target, $list);
@@ -6548,19 +6792,20 @@ EOT
 
 sub mk_packet {
  # pass me a target and a blocklist domain
- my ($target, $list)=@_;
- my ($packet, $error)=new Net::DNS::Packet(my $fqdn="$target.$list", 'A');
+ my ($target,$list)=@_;
+ my ($packet,$txt_packet,$error);
+ ($packet,$error)=new Net::DNS::Packet(my $fqdn="$target.$list", 'A');
  unless ($packet) {
   main::mlog(0,"Cannot build DNS query for $fqdn, type A: $error");
   return;
  }
  return $packet->data unless wantarray;
- my ($txt_packet, $error)=new Net::DNS::Packet($fqdn, 'TXT', 'IN');
+ ($txt_packet,$error)=new Net::DNS::Packet($fqdn, 'TXT', 'IN');
  unless ($txt_packet) {
   main::mlog(0,"Cannot build DNS query for $fqdn, type TXT: $error");
   return;
  }
- $packet->data, $txt_packet->data;
+ $packet->data,$txt_packet->data;
 }
 
 sub decode_packet {

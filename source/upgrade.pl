@@ -534,7 +534,7 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
   mlog(0,"move2num.pl script removed from '$base/'");
  }
  # convert corpus files, this will take some time ...
- foreach my $c (@Collections) {
+ foreach my $c (keys %CollectionOptions) {
   if ($Config{$c}) {
    opendir(DIR,"$base/$Config{$c}");
    my @files=readdir DIR;
@@ -584,8 +584,8 @@ if (vercmp($Config{ConfigVersion},'1.2.0 beta 0')<0) {
   }
  }
 # # pre-cache corpus files, this will take some time ...
-# $CorpusObject=tie %Corpus,orderedtie,"$base/$Config{corpusdb}";
-# foreach my $c (@Collections) {
+# $CorpusObject=tie(%Corpus,orderedtie,"$base/$Config{corpusdb}");
+# foreach my $c (keys %CollectionOptions) {
 #  if ($Config{$c}) {
 #   opendir(DIR,"$base/$Config{$c}");
 #   my @files=readdir DIR;

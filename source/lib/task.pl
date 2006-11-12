@@ -243,7 +243,7 @@ sub doTask {
   }
  }
  # rearrange queue by task priority
- my (@high,@norm,@idle,@wait,@suspend);
+ my (@run,@high,@norm,@idle,@wait,@suspend);
  foreach my $tid (@Tasks) {
   next unless exists $Tasks{$tid};
   my $task=$Tasks{$tid};
@@ -252,7 +252,7 @@ sub doTask {
     push(@high,$tid);
    } elsif ($task->{priority} eq 'NORM') {
     push(@norm,$tid);
-   } else { # IDLE priority
+   } elsif ($task->{priority} eq 'IDLE') {
     push(@idle,$tid);
    }
   } elsif ($task->{state} eq 'SUSPEND') {
@@ -265,13 +265,26 @@ sub doTask {
    push(@wait,$tid);
   }
  }
- @Tasks=(@high,@norm,@idle,@wait,@suspend);
- $KernelStats{max_queue}=scalar @Tasks if @Tasks>$KernelStats{max_queue};
  $KernelStats{max_high_queue}=scalar @high if @high>$KernelStats{max_high_queue};
  $KernelStats{max_norm_queue}=scalar @norm if @norm>$KernelStats{max_norm_queue};
  $KernelStats{max_idle_queue}=scalar @idle if @idle>$KernelStats{max_idle_queue};
  $KernelStats{max_wait_queue}=scalar @wait if @wait>$KernelStats{max_wait_queue};
  $KernelStats{max_suspend_queue}=scalar @suspend if @suspend>$KernelStats{max_suspend_queue};
+ # Lottery Scheduling
+ my %chances=(1=>\@idle,2=>\@norm,4=>\@high);
+ my $chance=0;
+ while (my ($c,$v)=each(%chances)) {
+  $chance+=$c if @{$v}>0;
+ }
+ $chance=rand($chance);
+ while (my ($c,$v)=each(%chances)) {
+  if ($chance>=0 && @{$v}>0) {
+   $chance-=$c;
+   push(@run,shift @{$v}) if $chance<0;
+  }
+ }
+ @Tasks=(@run,@high,@norm,@idle,@wait,@suspend);
+ $KernelStats{max_queue}=scalar @Tasks if @Tasks>$KernelStats{max_queue};
  # schedule task
  my $tid=shift @Tasks; $allCnt-- if $allCnt; # dequeue task
  if (exists $Tasks{$tid}) {
@@ -366,8 +379,8 @@ sub yield {
 sub wrap {
  my $self=shift;
  my $stack=$self->{stack};
+ my @ret;
  return sub {
-  my @ret;
   while (1) {
    my ($sub,$label)=@{$stack->[@$stack-1]};
    # cpu stats
