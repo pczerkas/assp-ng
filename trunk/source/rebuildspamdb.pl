@@ -51,7 +51,7 @@ configInitUpdate();
 getmaxtick("$base/data/rebuild");
 
 $spamObject=tie(%spam,orderedtie,"$base/spamtmp") if $RamSaver;
-$WhitelistObject=tie %Whitelist,orderedtie,"$base/$whitelistdb" unless $KeepWhitelistedSpam;
+$WhitelistObject=tie(%Whitelist,orderedtie,"$base/$whitelistdb") unless $KeepWhitelistedSpam;
 
 $starttime=time;
 
@@ -386,7 +386,7 @@ sub uploadgreylist {
  my @logs=sortLogs($logfile);
  while (@logs && !$stop) {
   $stop=1;
-  if (open(F,shift(@logs))) {
+  if (open(F,shift @logs)) {
    local $/="\n";
    while (<F>) {
     my ($date,$ip,$i1,$i2,$m);

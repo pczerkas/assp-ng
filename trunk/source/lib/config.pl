@@ -39,11 +39,12 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
            'noMsgVerify' => 'NMVRE1',
            'noBombScript' => 'NBSRE',
            'noAttachment' => 'NACRE',
-           'noURIBL' => 'NURIBLRE');
+           'noURIBL' => 'NURIBLRE',
+           'acceptAllMail' => 'AMRE1');
 
 %MakeIPRE=('ispip' => 'ISPRE',
            'allowAdminConnections' => 'AACRE',
-           'acceptAllMail' => 'AMRE',
+           'acceptAllMail' => 'AMRE2',
            'noLog' => 'NLOGRE',
            'noGreetDelay' => 'NGDRE',
            'noDelay' => 'NDRE',
@@ -55,24 +56,26 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
            'denySMTPConnections' => 'DSMTPCRE',
            'noRateLimit' => 'NRLRE');
 
-$AttachmentBlockLevels={'0' => 'Disabled',
-                        '1' => 'Level 1',
-                        '2' => 'Level 2',
-                        '3' => 'Level 3'};
+# used to construct option-lists in web interface
+# {option_id => option_text}
+$AttachmentBlockLevels={0 => 'Disabled',
+                        1 => 'Level 1',
+                        2 => 'Level 2',
+                        3 => 'Level 3'};
 
-$HamCollectionOptions={'1' => 'notspam folder & CC',
-                       '2' => 'notspam folder',
-                       '3' => 'mailok folder & CC',
-                       '4' => 'mailok folder',
-                       '5' => 'discard & CC',
-                       '6' => 'discard'};
+$HamCollectModes={1 => 'notspam folder & CC',
+                  2 => 'notspam folder',
+                  3 => 'mailok folder & CC',
+                  4 => 'mailok folder',
+                  5 => 'discard & CC',
+                  6 => 'discard'};
 
-$SpamCollectionOptions={'7' => 'spam folder & CC',
-                        '8' => 'spam folder',
-                        '9' => 'discard & CC',
-                        '10' => 'discard',
-                        '11' => 'virii folder & CC',
-                        '12' => 'virii folder'};
+$SpamCollectModes={7 => 'spam folder & CC',
+                   8 => 'spam folder',
+                   9 => 'discard & CC',
+                   10 => 'discard',
+                   11 => 'virii folder & CC',
+                   12 => 'virii folder'};
 
 @Config=(
 ['Network Setup'],
@@ -133,9 +136,10 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
    You can supply an interface:port to limit connections.',undef],
 
 ['Relaying Control'],
- ['acceptAllMail','Accept All Mail*',60,\&textinput,'','(.*)',\&configMakeIPRe,
-  'Allows relaying for these hosts. These hosts also contribute to the whitelist.<br />
-   For example: 127.0.0.1|10.|169.254.|172.16.|192.168.',undef],
+ ['acceptAllMail','Accept All Mail from these Addresses/IP\'s*',60,\&textinput,'','(.*)',\&configMakeSLIPRe,
+  'Allows relaying for these senders/hosts. These senders/hosts also contribute to the whitelist.<br />
+   Valid entry types are as per spamlovers or IP addresses.<br />
+   For example: 127.0.0.1|10.|169.254.|172.16.|192.168.|user@domain.com',undef],
  ['relayHostFile','Relay Host File',40,\&textinput,'','(.*)',undef,
   'Like Accept All Mail, but this is a file that contains a list of ip addresses (one per line)
    for whom you want to relay mail.<br />
@@ -201,7 +205,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
       '2'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '3'=>'normal (pre-data) -- as above, but honours HELO Failures Spamlover addresses',
       '4'=>'late (post-header) -- as above, but failures are collected',
-      '5'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
+      '5'=>'late (post-maxbytes) -- as above, but also body may match npRe/npLwlRe'}],
  ['HeloExtra','Extra HELO Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable HELO Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -229,7 +233,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   '',{'1'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '2'=>'normal (pre-data) -- as above, but honours Invalid Sender Spamlover addresses',
       '3'=>'late (post-header) -- as above, but failures are collected',
-      '4'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
+      '4'=>'late (post-maxbytes) -- as above, but also body may match npRe/npLwlRe'}],
  ['SenderExtra','Extra Sender Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable Sender Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -420,7 +424,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   '',{'1'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '2'=>'normal (pre-data) -- as above, but honours SPF Failures Spamlover addresses',
       '3'=>'late (post-header) -- as above, but failures are collected',
-      '4'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
+      '4'=>'late (post-maxbytes) -- as above, but also body may match npRe/npLwlRe'}],
  ['SPFExtra','Extra SPF Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable SPF Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -448,7 +452,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
       '3'=>'early (pre-rcpt) -- skips noprocessing, local, whitelisted or authenticated senders',
       '4'=>'normal (pre-data) -- as above, but honours RBL Failures Spamlover addresses',
       '5'=>'late (post-header) -- as above, but failures are collected',
-      '6'=>'late (post-body) -- as above, but also body may match npRe/npLwlRe'}],
+      '6'=>'late (post-maxbytes) -- as above, but also body may match npRe/npLwlRe'}],
  ['RBLExtra','Extra RBL Validation',0,\&checkbox2,4,'(.*)',undef,
   'Enable RBL Validation also for noprocessing/whitelisted messages.',
   {'1'=>'noprocessing',
@@ -504,9 +508,6 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Envelope sender addresses treatead as bounce origins. Null sender (&lt;&gt;) is always included.<br />
    Accepts specific addresses (postmaster@domain.com), usernames (mailer-daemon), or entire domains<br />
    (@bounces.domain.com). Separate entries with pipes: |. For example: postmaster|mailer-daemon',undef],
- ['SRSRewriteToHeader','Rewrite To: Header in bouce messages',0,\&checkbox,1,'(.*)',undef,
-  'Reverse SRS validated bounce messages have mangled To: header. When enabled ASSP will try<br />
-   to unwind To: header to original email address.',undef],
  ['noSRSBounce','Don\'t Validate Bounces from these IP\'s*',60,\&textinput,'','(.*)',\&configMakeIPRe,
   'Enter IP addresses that you don\'t want to validate bounces from, separated by pipes (|).<br />
    For example: 127.0.0.1|192.168.',undef],
@@ -623,7 +624,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'Scan for viruses using <a href="http://www.clamav.net/" rel="external">ClamAV\'s</a> clamd daemon.',undef],
  ['AvDestination','Clamd Destination',20,\&Avtextinput,'127.0.0.1:3310','(\S*)',undef,
   'The address:port of clamd daemon service. For example: 127.0.0.1:3310',undef],
- ['Avmaxtime','Maximum Time',5,\&Avtextinput,120,'(\d*)',undef,
+ ['Avmaxtime','Maximum Time',5,\&Avtextinput,20,'(\d*)',undef,
   'This sets the maximum time to spend on each message performing AV checks.<br />
    Other sessions are not blocked during AV scanning.',undef],
  ['AvPath','Path to Anti-virus Databases',40,\&Avtextinput,'','(.*)',undef,
@@ -898,50 +899,50 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['npColl','No Processing',1,\&option,6,'([1-6])',undef,
   'Where to store no processing emails.<br /><br />
    Note: Messages may undergo multiple spam tests. At any stage of processing, the test will be performed only if its assigned<br />
-   collection value or severity (testmode, spamlover vs blocking) is greater than the value aquired so far by the message.',$HamCollectionOptions],
+   collection value or severity (testmode, spamlover vs blocking) is greater than the value aquired so far by the message.',$HamCollectModes],
  ['localColl','Local Ham',1,\&option,2,'([1-6])',undef,
-  'Where to store local emails.',$HamCollectionOptions],
+  'Where to store local emails.',$HamCollectModes],
  ['whiteColl','Whitelisted Ham',1,\&option,2,'([1-6])',undef,
-  'Where to store whitelisted emails.',$HamCollectionOptions],
+  'Where to store whitelisted emails.',$HamCollectModes],
  ['redColl','Redlisted',1,\&option,4,'([1-6])',undef,
-  'Where to store redlisted emails.',$HamCollectionOptions],
+  'Where to store redlisted emails.',$HamCollectModes],
  ['baysNonSpamColl','Bayesian Non Spam',1,\&option,4,'([1-6])',undef,
   'Where to store Bayesian non spam (message ok) emails.<br />
-   Recommended: \'mailok folder\' (prevents false negatives from corrupting corpus)',$HamCollectionOptions],
+   Recommended: \'mailok folder\' (prevents false negatives from corrupting corpus)',$HamCollectModes],
  ['baysSpamColl','Bayesian Spams',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store Bayesian spam emails.',$SpamCollectionOptions],
+  'Where to store Bayesian spam emails.',$SpamCollectModes],
  ['spamHeloColl','Spam Helos',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store spam helo emails.',$SpamCollectionOptions],
+  'Where to store spam helo emails.',$SpamCollectModes],
  ['mfFailColl','Sender Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store sender failure emails.',$SpamCollectionOptions],
+  'Where to store sender failure emails.',$SpamCollectModes],
  ['blDomainColl','Blacklisted Domains',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store blacklisted domain emails.',$SpamCollectionOptions],
+  'Where to store blacklisted domain emails.',$SpamCollectModes],
  ['SRSFailColl','SRS Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store SRS Failure (not signed bounces) spam emails.',$SpamCollectionOptions],
+  'Where to store SRS Failure (not signed bounces) spam emails.',$SpamCollectModes],
  ['spamBucketColl','Spam Trap Addresses',1,\&option,10,'([7-9]|1[0-2])',undef,
-  'Where to store has spam trap address emails.',$SpamCollectionOptions],
+  'Where to store has spam trap address emails.',$SpamCollectModes],
  ['SPFFailColl','SPF Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store SPF Failure spam emails.',$SpamCollectionOptions],
+  'Where to store SPF Failure spam emails.',$SpamCollectModes],
  ['RBLFailColl','RBL Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store RBL Failure spam emails.',$SpamCollectionOptions],
+  'Where to store RBL Failure spam emails.',$SpamCollectModes],
  ['malformedColl','Malformed Messages',1,\&option,11,'([7-9]|1[0-2])',undef,
-  'Where to store malformed messages.',$SpamCollectionOptions],
+  'Where to store malformed messages.',$SpamCollectModes],
  ['URIBLFailColl','URIBL Failures',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store URIBL Failure spam emails.',$SpamCollectionOptions],
+  'Where to store URIBL Failure spam emails.',$SpamCollectModes],
  ['spamBombColl','Spam Bombs',1,\&option,7,'([7-9]|1[0-2])',undef,
-  'Where to store spam bombs.',$SpamCollectionOptions],
+  'Where to store spam bombs.',$SpamCollectModes],
  ['scriptColl','Scripts',1,\&option,10,'([7-9]|1[0-2])',undef,
-  'Where to store scripted emails.',$SpamCollectionOptions],
+  'Where to store scripted emails.',$SpamCollectModes],
  ['wlAttachColl','Whitelisted Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
-  'Where to store Whitelisted blocked attachments.',$SpamCollectionOptions],
+  'Where to store Whitelisted blocked attachments.',$SpamCollectModes],
  ['npAttachColl','No Processing Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
-  'Where to store no processing blocked attachments.',$SpamCollectionOptions],
+  'Where to store no processing blocked attachments.',$SpamCollectModes],
  ['extAttachColl','External Blocked Attachments',1,\&option,12,'([7-9]|1[0-2])',undef,
-  'Where to store external blocked attachments.',$SpamCollectionOptions],
+  'Where to store external blocked attachments.',$SpamCollectModes],
  ['viriColl','Viruses',1,\&option,12,'([7-9]|1[0-2])',undef,
-  'Where to store virus-infected emails.',$SpamCollectionOptions],
+  'Where to store virus-infected emails.',$SpamCollectModes],
  ['serverRejectedColl','Server Rejected Messages',1,\&option,8,'([7-9]|1[0-2])',undef,
-  'Where to store server rejected emails.',$SpamCollectionOptions],
+  'Where to store server rejected emails.',$SpamCollectModes],
  ['freqNonSpam','Non Spam Collecting Frequency',5,\&textinput,1,'(\d*)',\&configUpdateLog2,
   'Store every n\'th non spam message. Eg. if you set the value to 10 then every 10th message is collected.<br />
    These frequency settings are for ASSP users with a mature installtion who experience heavy mail or spam volumes.<br />
@@ -1044,8 +1045,8 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
  ['maillogExt','Extension for Mail Files',20,\&textinput,'.eml','(\S*)',undef,
   'Enter the file extension (include the period) you want appended to the mail files in the mail collections.<br />
    Leave it blank for no extension. For Example: .eml',undef],
- ['spamdb','Spam Bayesian Database File',40,\&textinput,'data/spamdb','(\S+)',undef,
-  'The output file from rebuildspamdb.pl.',undef],
+ ['bayesdb','Bayesian Database File',40,\&textinput,'data/bayes.db','(\S+)',undef,
+  'The file with Bayesian database.',undef],
  ['whitelistdb','E<!--get rid of google autofill-->mail Whitelist Database File',40,\&textinput,'data/whitelist','(\S+)',undef,
   'The file with the whitelist.',undef],
  ['redlistdb','E<!--get rid of google autofill-->mail Redlist Database File',40,\&textinput,'data/redlist','(\S+)',undef,
@@ -1058,7 +1059,7 @@ $SpamCollectionOptions={'7' => 'spam folder & CC',
   'The file with the delay database.',undef],
  ['ratelimitdb','RateLimit Database',40,\&textinput,'data/ratelimitdb','(\S*)',undef,
   'The file with the ratelimit database.',undef],
- ['corpusdb','Corpus Cache Database',40,\&textinput,'data/corpusdb','(\S*)',undef,
+ ['corpusdb','Corpus Cache Database',40,\&textinput,'data/corpus.db','(\S*)',undef,
   'The file with the corpus cache database.',undef],
  ['logfile','ASSP Logfile',40,\&textinput,'logs/maillog.txt','(.*)',\&configChangeLogfile,
   'Blank if you don\'t want a log file. Change it to logs/maillog.log if you don\'t want auto rollover/rotation.',undef],
@@ -1447,7 +1448,7 @@ sub configMakeIPRe {
   $new=join('|',@ips);
   use re 'eval';
   eval{${$MakeIPRE{$name}}=qr/^($new)/};
-  mlog(0,"regular expression error in '$r' for $desc: $@") if $@;
+  mlog(0,"regular expression error in '$new' for $desc: $@") if $@;
  }
  '';
 }

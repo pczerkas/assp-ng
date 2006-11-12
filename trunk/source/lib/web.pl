@@ -35,13 +35,13 @@ use bytes; # get rid of annoying 'Malformed UTF-8' messages
              '<span style="color:white; background-color:#004699">',
              '<span style="color:white; background-color:#990099">');
 
-@News=('smtpAuthServer','SMTPTimeout','localHostNames','GreetDelay','GreetDelay2','noGreetDelay',
+@News=('smtpAuthServer','SMTPTimeout','acceptAllMail','localHostNames','GreetDelay','GreetDelay2','noGreetDelay',
        'GreetDelayError','ValidateHelo','HeloPosition','HeloExtra','HeloForged','HeloMismatch','hlSpamRe','noHelo','ValidateSender',
        'SenderPosition','SenderExtra','SenderForged','SenderLDAP','SenderMX','noSenderCheck',
        'DetectInvalidRecipient','LDAPHost','npLwlRe','mfSpamLovers','delayingSpamLovers','msgVerifySpamLovers',
        'bombsSpamLovers','uriblSpamLovers','ratelimitSpamLovers','spamSubjectSL','SPFPosition','SPFExtra','noSPF','SPFError',
        'ValidateRWL','AddRWLHeader','RWLServiceProvider','RWLmaxreplies','RWLminhits','RWLmaxtime','noRWL',
-       'RBLPosition','RBLExtra','RBLServiceProvider','noRBL','RBLError','noSRS','SRSRewriteToHeader','SRSBounceError',
+       'RBLPosition','RBLExtra','RBLServiceProvider','noRBL','RBLError','noSRS','SRSBounceError',
        'EnableMsgVerify','MsgVerifyExtra','MsgVerifyHeaders','MsgVerifyLineLength','noMsgVerify','noBombScript',
        'noAttachment','ValidateURIBL','URIBLExtra','AddURIBLHeader','URIBLServiceProvider','URIBLCCTLDS',
        'URIBLmaxuris','URIBLmaxdomains','URIBLNoObfuscated','URIBLmaxreplies','URIBLmaxhits','URIBLmaxtime',
@@ -189,7 +189,7 @@ sub taskWebTraffic {
    ($buf)=();
    unless ($ch->sysread($buf,$IncomingBufSize)>0) {
     # connection closed by peer
-    mlog(0,"admin connection from $ip:$port; connection closed unexpectedly by client") unless $this->{mNLOGRE};
+    mlog(0,"admin connection from $ip:$port; unexpected connection close by client") unless $this->{mNLOGRE};
     last;
    }
    $this->{reqbuf}.=$buf;
@@ -201,7 +201,8 @@ sub taskWebTraffic {
    ($resp)=();
    $this->{reqblen}=$1 if !$this->{reqblen} && $this->{reqbuf}=~/Content-length: (\d+)/i; # POST request?
    if ($this->{reqbuf}=~/^(.*?\015\012)\015\012(.*)/s && length($2)>=$this->{reqblen}) {
-    return call('L2',webRequest($ch,$1,$2)); L2: $resp=shift;
+    return call('L2',webRequest($ch,$1,$2)); L2:
+    $resp=shift;
    }
    if ($resp=~/^(.*?\n)\n(.*)/s) {
     ($resph,$respb)=($1,$2);
@@ -209,7 +210,7 @@ sub taskWebTraffic {
     $time=~s/(...) (...) +(\d+) (........) (....)/$1, $3 $2 $5 $4 GMT/;
     $resph.="Server: ASSP/$version$modversion\n";
     $resph.="Date: $time\n";
-    if ($EnableHTTPCompression && $CanUseHTTPCompression) {
+    if ($CanUseHTTPCompression && $EnableHTTPCompression) {
      if ($this->{reqbuf}=~/Accept-Encoding: (.*?)\015\012/i && $1=~/(gzip|deflate)/i) {
       $enc=$1;
       if ($enc=~/gzip/i) {
@@ -244,7 +245,7 @@ sub taskWebTraffic {
      $written=syswrite($ch,$resp,$OutgoingBufSize);
      unless ($written>0) {
       # connection closed by peer
-      mlog(0,"admin connection from $ip:$port; connection closed unexpectedly by client") unless $this->{mNLOGRE};
+      mlog(0,"admin connection from $ip:$port; unexpected connection close by client") unless $this->{mNLOGRE};
       last;
      }
      substr($resp,0,$written,''); # four-argument substr()
@@ -355,24 +356,24 @@ sub checkUpdate {
  my ($name,$default,$valid,$onchange,$http,$gpc)=@_;
  return '' unless exists $gpc->{theButton};
  $gpc->{$name}=$default if $gpc->{$name} eq '?';
- if ($gpc->{$name} ne $Config{$name}) {
-  if ($gpc->{$name}=~/^$valid$/i) {
-   my $new=$1; my $info;
-   my $old=$Config{$name};
-   $Config{$name}=$new;
-   if ($onchange) {
-    $info=$onchange->($name,$old,$new);
-   } else {
-    mlog(0,"admin update: $name changed from '$old' to '$new'");
-    # -- this sets the variable name with the same name as the config key to the new value
-    # -- for example $Config{myName}='ASSP-nospam' -> $myName='ASSP-nospam';
-    ${$name}=$new;
-   }
-   $ConfigChanged{$name}=1;
-   return "<span class=\"positive\"><b>*** Updated $info</b></span><br />";
+ return '' if $gpc->{$name} eq $Config{$name};
+ if ($gpc->{$name}=~/^$valid$/i) {
+  my $new=$1;
+  my $info;
+  my $old=$Config{$name};
+  $Config{$name}=$new;
+  if ($onchange) {
+   $info=$onchange->($name,$old,$new);
   } else {
-   return "<span class=\"negative\"><b>*** Invalid: '$gpc->{$name}'</b></span><br />";
+   mlog(0,"admin update: $name changed from '$old' to '$new'");
+   # -- this sets the variable name with the same name as the config key to the new value
+   # -- for example $Config{myName}='ASSP-nospam' -> $myName='ASSP-nospam';
+   ${$name}=$new;
   }
+  $ConfigChanged{$name}=1;
+  return "<span class=\"positive\"><b>*** Updated $info</b></span><br />";
+ } else {
+  return "<span class=\"negative\"><b>*** Invalid: '$gpc->{$name}'</b></span><br />";
  }
 }
 
@@ -683,7 +684,7 @@ sub webLists {
      $maxage_desc=$sel_maxage->[1].$sel_maxage->[3];
     }
    } elsif ($gpc->{maxage_lists} eq $sel_maxages[4][0]) {
-    # if 'ALL ENTRIES' selected restore default (safe) selection
+    # if 'ALL ENTRIES' selected, restore default (safe) selection
     if ($sel_maxage->[0] eq $def_maxage) {
      $sel_maxage_html.='selected="selected" ';
      $maxage=$sel_maxages[4][2];
@@ -696,7 +697,7 @@ sub webLists {
    }
    $sel_maxage_html.="value=\"$sel_maxage->[0]\">$sel_maxage->[1]</option>\n";
   }
-  # if 'ALL ENTRIES' selected restore default (safe) selection
+  # if 'ALL ENTRIES' selected, restore default (safe) selection
   $gpc->{maxage_lists}=$def_maxage if $gpc->{maxage_lists} eq $sel_maxages[4][0];
   chomp($sel_maxage_html);
   $maxage=$t-$last_visit if $maxage<0; # 'new entries' case
@@ -742,7 +743,7 @@ sub webLists {
       $s.='<span class="negative">action not applicable</span>';
      } elsif ($gpc->{action} eq 'r') {
       if ($expires>0) {
-       ($blocked,$reason)=(-1)x2;
+       $blocked=$reason=-1;
        # update entry
        $recs="$added\004$blocked\004$reason\003";
        $recs.=join("\003",@a)."\003" if @a;
@@ -933,7 +934,8 @@ sub webLists {
    }
    $s.='</div>';
   }
-  return call('L3',addTooltips($s)); L3: $s=shift;
+  return call('L3',addTooltips($s)); L3:
+  $s=shift;
   # cookie expiration date
   $cookie_exp=$t+2592000; # one month
   $cookie_exp=gmtime($cookie_exp);
@@ -1034,7 +1036,7 @@ sub webAnalyze {
    $fil=$gpc->{file};
    if ($fil) {
     ($coll)=();
-    foreach $c (@Collections) {
+    foreach $c (keys %CollectionOptions) {
      next unless ${$c};
      $coll=$c if $gpc->{collection} eq $c;
     }
@@ -1198,7 +1200,8 @@ sub webAnalyze {
    $mail=~s/<\/textarea>/\/textarea/gi;
    $mail=~s/(hlo|rcpt|ssub|href|atxt|blines|jscripttag|boldifytext|randword|linkedimage|lotsaspaces)/uc($1)/ge;
   }
-  return call('L2',addTooltips($wl)); L2: $wl=shift;
+  return call('L2',addTooltips($wl)); L2:
+  $wl=shift;
   return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -1271,14 +1274,14 @@ sub SMhelo {
  $Con{$client}->{outgoing}='';
  if ($l=~/^ *220 / && (my $helo=$Con{$client}->{_helo})) {
   if ($sendNoopInfo) {
-   $this->{getline}=\&SMskipok;
+   $this->{getline}='SMskipok';
   } else {
    SMTPTraffic($client,"HELO $helo\015\012");
    # did ASSP say something to us?
    if ($Con{$client}->{outgoing}) { # yes, react
     SMfrom($ch,'');
    } else {  # no, wait for SMTP server response
-    $this->{getline}=\&SMfrom;
+    $this->{getline}='SMfrom';
    }
   }
  } else {
@@ -1297,7 +1300,7 @@ sub SMskipok {
   if ($Con{$client}->{outgoing}) { # yes, react
    SMfrom($ch,'');
   } else {  # no, wait for SMTP server response
-   $this->{getline}=\&SMfrom;
+   $this->{getline}='SMfrom';
   }
  } else {
   SMdone($ch);
@@ -1317,7 +1320,7 @@ sub SMfrom {
   if ($Con{$client}->{outgoing}) { # yes, react
    SMrcpt($ch,'');
   } else {  # no, wait for SMTP server response
-   $this->{getline}=\&SMrcpt;
+   $this->{getline}='SMrcpt';
   }
  } else {
   SMdone($ch);
@@ -1337,7 +1340,7 @@ sub SMrcpt {
   if ($Con{$client}->{outgoing}) { # yes, react
    SMdata($ch,'');
   } else {  # no, wait for SMTP server response
-   $this->{getline}=\&SMdata;
+   $this->{getline}='SMdata';
   }
  } else {
   SMdone($ch);
@@ -1359,7 +1362,7 @@ sub SMdata {
   if ($Con{$client}->{outgoing}) { # yes, react
    SMdata($ch,'');
   } else {  # no, wait for SMTP server response
-   $this->{getline}=\&SMdata;
+   $this->{getline}='SMdata';
   }
  } else {
   if ($Con{$client}->{_rcptok}) {
@@ -1368,7 +1371,7 @@ sub SMdata {
    if ($Con{$client}->{outgoing}) { # yes, react
     SMdata2($ch,'');
    } else {  # no, wait for SMTP server response
-    $this->{getline}=\&SMdata2;
+    $this->{getline}='SMdata2';
    }
   } else {
    SMdone($ch);
@@ -1384,7 +1387,7 @@ sub SMdata2 {
  $l=$Con{$client}->{outgoing};
  $Con{$client}->{outgoing}='';
  if ($l=~/^ *354 /) {
-  $this->{getline}=\&SMdone;
+  $this->{getline}='SMdone';
   my $mail=$Con{$client}->{_body};
   while ($mail=~/(.*\015\012)/g) {
    my $line=$1;
@@ -1404,13 +1407,13 @@ sub SMdone {
 
 sub webSimulate {
  my ($http,$gpc)=@_;
- my ($mlog,$slog);
+ my ($mlog,$slog,$res);
  my $body=decodeHTMLEntities($gpc->{body});
  unless ($body) {
   my $fil=$gpc->{file};
   if ($fil) {
    my $coll;
-   foreach my $c (@Collections) {
+   foreach my $c (keys %CollectionOptions) {
     next unless ${$c};
     $coll=$c if $gpc->{collection} eq $c;
    }
@@ -1480,8 +1483,10 @@ sub webSimulate {
   }
  }
  $body=encodeHTMLEntities($body);
- return call('L1',addTooltips($mlog)); L1: $mlog=shift;
- return call('L2',addTooltips($slog)); L2: $slog=shift;
+ return call('L1',addTooltips($mlog)); L1:
+ $mlog=shift;
+ return call('L2',addTooltips($slog)); L2:
+ $slog=shift;
  return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -1621,7 +1626,8 @@ sub webLogs {
     close $fh;
     $s=encodeHTMLEntities($s);
     $s=join('',map{logWrap("$_\n",$MaillogTailWrapColumn,$indent)} split(/\r?\n|\r/,$s)) if $MaillogTailWrapColumn>0;
-    return call('L1',addTooltips($s,$gpc->{nohighlight_m})); L1: $s=shift;
+    return call('L1',addTooltips($s,$gpc->{nohighlight_m})); L1:
+    $s=shift;
    } else {
     mlog(0,"failed to open maillog file for reading '$base/$logs': $!");
    }
@@ -1630,7 +1636,7 @@ sub webLogs {
    $matches=$lines=$files=0;
    ($highlightExpr,%replace)=();
    @logs=sortLogs($logs);
-   $logf=File::ReadBackwards->new(shift(@logs),'\r?\n|\r',1); # line terminator regex
+   $logf=File::ReadBackwards->new(shift @logs,'\r?\n|\r',1); # line terminator regex
    if ($logf) {
     $files++;
     $pat=encodeHTMLEntities($pat);
@@ -1642,12 +1648,12 @@ sub webLogs {
     $l=encodeHTMLEntities($l);
     (@ary)=();
     push(@ary,$l);
-    ($lastoutput,$infinity)=(10000)x2;
-    ($precontext,$postcontext)=($gpc->{nocontext} ? 0 : $MaillogContextLines)x2;
+    $lastoutput=$infinity=10000;
+    $precontext=$postcontext=$gpc->{nocontext} ? 0 : $MaillogContextLines;
     $notmatched=$currentpre=$seq=$i=$j=0;
     $cur=$ary[0];
     # normalize search pattern
-    @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++).'_'.$_} map/(.+)/, split/(-?'[^']*')| /,$pat}};
+    @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++)."_$_"} map/(.+)/, split/(-?'[^']*')| /,$pat}};
     $pat=join(' ',@tokens);
     @good=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^([^-].*)/, @tokens;
     @bad=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^-(.*)/, @tokens;
@@ -1717,9 +1723,9 @@ sub webLogs {
      $notmatched++;
      if ($l) {
       if ($logf && $logf->eof) {
-       $logf->close if exists $logf->{'handle'};
+       $logf->close if exists $logf->{handle};
        unless ($maxfiles && $files>=$maxfiles) {
-        $logf=File::ReadBackwards->new(shift(@logs),'\r?\n|\r',1);
+        $logf=File::ReadBackwards->new(shift @logs,'\r?\n|\r',1);
         $files++ if $logf;
        }
       }
@@ -1732,11 +1738,11 @@ sub webLogs {
      if ($currentpre<$precontext) {
       $currentpre++;
      } else {
-      shift(@ary);
+      shift @ary;
      }
      $cur=$ary[$currentpre];
     }
-    $logf->close if exists $logf->{'handle'};
+    $logf->close if exists $logf->{handle};
    }
    $hpat=$pat;
    $hpat=~s/($highlightExpr)/$replace{lc $1}$1<\/span>/gi if $highlightExpr && !$gpc->{nohighlight_m};
@@ -1752,8 +1758,10 @@ sub webLogs {
     $res='No results found for \''.$hpat.'\', searched in '.needEs($files,' log file','s').
          ' ('.needEs($lines,' line','s').'), search took '.formatTimeInterval(time-$t).'.';
    }
-   return call('L3',addTooltips($res,$gpc->{nohighlight_m})); L3: $res=shift;
-   return call('L4',addTooltips($s,$gpc->{nohighlight_m})); L4: $s=shift;
+   return call('L3',addTooltips($res,$gpc->{nohighlight_m})); L3:
+   $res=shift;
+   return call('L4',addTooltips($s,$gpc->{nohighlight_m})); L4:
+   $s=shift;
   } else {
    $s='<p class="warning">Please install required module <a href="http://search.cpan.org/~uri/File-ReadBackwards-1.04/" rel="external">File::ReadBackwards</a>.</p>';
   }
@@ -1790,8 +1798,8 @@ $HTMLHeaders
   <div class="content">
     <h2>ASSP Maillog Tail</h2>
     <div class="note">
-      Press your browser's refresh to update this screen. Newest entries are at the end.
-      Use single quotes for phrases. Use minus sign to negate a search term.
+      Press your browser's refresh to update this screen. Newest entries are at the end. Use single quotes for phrases.
+      Use minus sign to negate a search term. For example: term1 -'search term2'
     </div>
     <form action="" method="get">
       <table class="textBox" style="width: 99%;">
@@ -1835,16 +1843,19 @@ EOT
 }
 
 sub webCorpusItem {
- my ($coll,$fn,$det,$gpc,$good,$bad)=@_;
+ my ($coll,$fil,$det,$gpc,$last_visit,$good,$bad)=@_;
  return '' unless defined $det->[0];
  return '' if $gpc->{nomoved} && ($det->[4] & 2);
  if (@{$good} || @{$bad}) {
-  open(I,'<',"$base/${$coll}/$fn");
-  binmode I;
-  local $/;
-  my $c=<I>;
-  undef $/;
-  close I;
+  my $fn="${$coll}/$fil";
+  return '' if exists $CollLocks{$fn}; # file name locked
+  # lock file name
+  $CollLocks{$fn}=1;
+  tie(my %tmp,DB_File,"$base/$fn",O_RDONLY);
+  my $c=$tmp{_header}."\015\012".$tmp{_body};
+  untie(%tmp);
+  # unlock file name
+  delete $CollLocks{$fn};
   $c=encodeHTMLEntities($c);
   my $gotmatch=1;
   foreach my $re (@{$good}) {
@@ -1878,7 +1889,7 @@ sub webCorpusItem {
  my $vlink=$gpc->{search};
  # javascript 'touches' the url that passes through it, hence double-encoding
  $vlink=escapeQuery(escapeQuery($vlink));
- $vlink="javascript:popFileViewer('$coll','$fn','$vlink');";
+ $vlink="javascript:popFileViewer('$coll','$fil','$vlink');";
  # if file is old or has 'seen' bit set
  if ($det->[0]<=$last_visit || $det->[4] & 1) {
   $sub='<span style="font-weight: normal">'.$sub.'</span>';
@@ -1891,7 +1902,7 @@ sub webCorpusItem {
  }
  return <<EOT;
         <tr>
-          <td class="statsTitle"><input type="checkbox" name="items[]" value="$coll|$fn"></td>
+          <td class="statsTitle"><input type="checkbox" name="items[]" value="$coll|$fil"></td>
           <td class="statsTitle"><a onClick="this.style.fontWeight='normal';" href="$vlink">$sub</a></td>
           <td class="optionValue"><a onClick="this.style.fontWeight='normal';" href="$mlink">$dat</a></td>
           <td class="optionValue">$det->[1]</td>
@@ -1904,7 +1915,7 @@ sub webCorpus {
  my ($http,$gpc);
  my ($t,$last_visit,$this_visit,$since,@sel_colls,$coll,$sel_coll_html,$coll_desc,$def_coll,$c,@sel_maxages,$sel_maxage);
  my ($maxage,$sel_maxage_html,$maxage_desc,$def_maxage,@sel_acts,$sel_act,$act,$sel_act_html,$act_desc,$def_act,$det3);
- my ($s,$res,$done,$i,$icoll,$fil,$coll2,$det,$f,$nf,$pat,@tokens,@good,@bad,$matches,%dir2coll,$l,%s,$fil2,$rec);
+ my ($s,$res,$done,$i,$icoll,$fil,$coll2,$det,$fn,$fn2,$pat,@tokens,@good,@bad,$matches,%dir2coll,$l,%s,$fil2,$rec);
  my ($dir,@arr,$det2,$flags,$res2,@items,$hpat,%replace,@htokens,$highlightExpr,$cookie_exp,$cookies,@dir,$n,$fil3,$fh);
  my $sref=$Tasks{$CurTaskID}->{webCorpus}||=[sub{
   ($http,$gpc)=@_;
@@ -1939,6 +1950,7 @@ EOT
   $gpc->{collection}=$gpc->{last_collection} if !exists $gpc->{collection} && exists $gpc->{last_collection};
   $gpc->{maxage_corpus}=$gpc->{last_maxage_corpus} if !exists $gpc->{maxage_corpus} && exists $gpc->{last_maxage_corpus};
   $gpc->{action}=$gpc->{last_action} if !exists $gpc->{action} && exists $gpc->{last_action};
+  $gpc->{regexp}=$gpc->{last_regexp} if !exists $gpc->{regexp} && exists $gpc->{last_regexp};
   $gpc->{nomoved}=$gpc->{last_nomoved} if !exists $gpc->{nomoved} && exists $gpc->{last_nomoved};
   $gpc->{nohighlight_c}=$gpc->{last_nohighlight_c} if !exists $gpc->{nohighlight_c} && exists $gpc->{last_nohighlight_c};
   @sel_colls=(['notspamlog','not-spam collection'],
@@ -1989,7 +2001,7 @@ EOT
      $maxage_desc=$sel_maxage->[1].$sel_maxage->[3];
     }
    } elsif ($gpc->{maxage_corpus} eq $sel_maxages[4][0]) {
-    # if 'ALL FILES' selected restore default (safe) selection
+    # if 'ALL FILES' selected, restore default (safe) selection
     if ($sel_maxage->[0] eq $def_maxage) {
      $sel_maxage_html.='selected="selected" ';
      $maxage=$sel_maxages[4][2];
@@ -2002,7 +2014,7 @@ EOT
    }
    $sel_maxage_html.="value=\"$sel_maxage->[0]\">$sel_maxage->[1]</option>\n";
   }
-  # if 'ALL FILES' selected restore default (safe) selection
+  # if 'ALL FILES' selected, restore default (safe) selection
   $gpc->{maxage_corpus}=$def_maxage if $gpc->{maxage_corpus} eq $sel_maxages[4][0];
   chomp($sel_maxage_html);
   @sel_acts=(['notspamlog','move to not-spam collection'],
@@ -2014,6 +2026,7 @@ EOT
              ['delete','DELETE']);
   ($act,$sel_act_html,$act_desc)=();
   $def_act=$sel_acts[0][0]; # default $act
+  $def_act=$sel_acts[1][0] if $def_act eq $coll;
   $act=$def_act;
   foreach $sel_act (@sel_acts) {
    next unless $sel_act->[0] eq 'delete' || ${$sel_act->[0]} && $sel_act->[0] ne $coll;
@@ -2026,7 +2039,7 @@ EOT
      $act_desc=$sel_act->[1];
     }
    } elsif ($gpc->{action} eq $sel_acts[6][0]) {
-    # if 'DELETE' selected restore default (safe) selection
+    # if 'DELETE' selected, restore default (safe) selection
     if ($sel_act->[0] eq $def_act) {
      $sel_act_html.='selected="selected" ';
      $act=$sel_acts[6][0];
@@ -2039,7 +2052,7 @@ EOT
    }
    $sel_act_html.="value=\"$sel_act->[0]\">$sel_act->[1]</option>\n";
   }
-  # if 'DELETE' selected restore default (safe) selection
+  # if 'DELETE' selected, restore default (safe) selection
   $gpc->{action}=$def_act if $gpc->{action} eq $sel_acts[6][0];
   chomp($sel_act_html);
   $maxage=$t-$last_visit if $maxage<0; # 'new files' case
@@ -2049,7 +2062,7 @@ EOT
    $i=${$gpc->{'items[]'}}[$n];
    ($icoll,$fil)=$i=~/(.*)\|(.*)/;
    ($coll2)=();
-   foreach $c (@Collections) {
+   foreach $c (keys %CollectionOptions) {
     next unless ${$c};
     $coll2=$c if $icoll eq $c;
    }
@@ -2057,92 +2070,74 @@ EOT
     mlog(0,"file path not allowed while moving/deleting corpus file '$fil'");
     $res='<div class="text"><span class="negative">Access denied</span></div><br />';
     last;
-   } elsif (!$coll2) {
+   }
+   unless ($coll2) {
     mlog(0,"nonexistent collection not allowed while moving/deleting corpus file '$fil'");
     $res='<div class="text"><span class="negative">Access denied</span></div><br />';
     last;
-   } elsif ($act eq 'delete') {
-    unlink("$base/${$coll2}/$fil");
-    # remove cache entry
-    corpusDetails("${$coll2}/$fil",1);
-    $done++;
-   } else {
-    $det=corpusDetails("${$coll2}/$fil");
-    next unless defined $det->[0];
-    $f="$base/${$coll2}/$fil";
-    $nf=$f;
-    # move2num
-    if ($fil=~/(\d+)$maillogExt$/i && $1<$MaxFiles) {
-     $nf=~s/.*[\\\/]|/${$act}\//;
-    } else {
-     $nf=getNewCollFileName(${$act});
-     $nf="${$act}/$nf$maillogExt";
-    }
-    if (-e $f && !samePaths($f,"$base/$nf")) {
-     unlink("$base/$nf");
-     if (rename($f,"$base/$nf")) {
-      # remove old entry
-      corpusDetails("${$coll2}/$fil",1);
-      # reload new entry, turn on 'moved' bit in flags field
-      corpusSetFlags($nf,($det->[4])|2,1);
-      $done++;
-     } else {
-      mlog(0,"failed to move corpus file from '$f' to '$base/$nf': $!");
-      # reload new entry
-      corpusDetails($nf,1);
-     }
-    }
    }
+   $fn="${$coll2}/$fil";
+   if (exists $CollLocks{$fn}) {
+    mlog(0,"file name locked while moving/deleting corpus file '$fil'");
+    $res='<div class="text"><span class="negative">File name locked</span></div><br />';
+    last;
+   }
+   $det=corpusDetails($fn);
+   return call('L1',collMoveFile($fn,$coll2,$act eq 'delete' ? '' : $act)); L1:
+   if ($fn2=shift) {
+    # reload new entry, turn on 'moved' bit in flags field
+    corpusSetFlags($fn2,($det->[4])|2,1);
+   }
+   # remove old entry
+   corpusDetails($fn,1);
+   $done++;
   }
   $res.='\''.$act_desc.'\' action was performed on '.needEs($done,' file','s').
         ($coll=~/^_/ ? '' : ' from '.$coll_desc).'.<br />' if $done>0;
   $pat=$gpc->{search};
-  $pat=encodeHTMLEntities($pat);
-  # normalize and strip redundand minuses
-  $pat=~s/(?<!(?:-|\w))(-(?:\s+|\z))+/-/g;
-  $pat=~s/\s+-$//;
-  # normalize search pattern
-  $i=0;
-  @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++).'_'.$_} map/(.+)/, split/(-?'[^']*')| /,$pat}};
-  $pat=join(' ',@tokens);
-  @good=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^([^-].*)/, @tokens;
-  @bad=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^-(.*)/, @tokens;
+  if ($gpc->{regexp}) {
+## todo regexp searches
+  } else {
+   $pat=encodeHTMLEntities($pat);
+   # normalize and strip redundand minuses
+   $pat=~s/(?<!(?:-|\w))(-(?:\s+|\z))+/-/g;
+   $pat=~s/\s+-$//;
+   # normalize search pattern
+   $i=0;
+   @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++)."_$_"} map/(.+)/, split/(-?'[^']*')| /,$pat}};
+   $pat=join(' ',@tokens);
+   @good=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^([^-].*)/, @tokens;
+   @bad=map eval{qr/\Q$_\E/i}, map/^'?([^']*)/, map/^-(.*)/, @tokens;
+  }
   $matches=0;
   if ($coll=~/^_/) {
    # handle combined collections
-   %dir2coll=reverse map{$_=>${$_}} @Collections;
-   $CorpusObject->flush() if $CorpusObject;
-   if (open($fh,'<',"$base/$corpusdb")) {
-    ($l,%s)=();
-    while (local $/="\n",$l=<$fh>) {
-     return cede('L1',1); L1:
-     ($fil2,$rec)=$l=~/([^\002]*)\002(.*)/;
-     ($dir)=();
-     ($dir,$fil2)=$fil2=~/(.*)[\\\/](.*)/;
-     @arr=split("\003",$rec);
-     $det2=\@arr;
-     next unless defined $det2->[0] && (!$maxage || $t-($det2->[0])<$maxage);
-     $flags=$det2->[4] & 12;
-     next unless $coll eq '_ham' && $flags==8 ||
-                 $coll eq '_spam' && $flags==12 ||
-                 $coll eq '_blocked' && $flags==4;
-     if ($res2=webCorpusItem($dir2coll{$dir},$fil2,$det2,$gpc,\@good,\@bad)) {
-      $s{$det2->[0].$fil2}=$res2;
-      $matches++;
-     }
+   %dir2coll=reverse map{$_=>${$_}} keys %CollectionOptions;
+   (%s)=();
+   while (($fil2,$rec)=each(%Corpus)) {
+    return cede('L2',1); L2:
+    ($dir)=();
+    ($dir,$fil2)=$fil2=~/(.*)[\\\/](.*)/;
+    @arr=split("\003",$rec);
+    $det2=\@arr;
+    next unless defined $det2->[0] && (!$maxage || $t-($det2->[0])<$maxage);
+    $flags=$det2->[4] & 12;
+    next unless $coll eq '_ham' && $flags==8 ||
+                $coll eq '_spam' && $flags==12 ||
+                $coll eq '_blocked' && $flags==4;
+    if ($res2=webCorpusItem($dir2coll{$dir},$fil2,$det2,$gpc,$last_visit,\@good,\@bad)) {
+     $s{$det2->[0].$fil2}=$res2;
+     $matches++;
     }
-    close $fh;
-    $s.=join('',map{$s{$_}} reverse sort keys %s);
-   } else {
-    mlog(0,"failed to open corpusdb file for reading '$base/$corpusdb': $!");
    }
+   $s.=join('',map{$s{$_}} reverse sort keys %s);
   } else {
    opendir(DIR,"$base/${$coll}");
    @dir=readdir DIR;
    closedir(DIR);
    (@items)=();
    for ($n=0;$n<@dir;$n++) {
-    return cede('L2',1); L2:
+    return cede('L3',1); L3:
     $fil3=$dir[$n];
     push(@items,[$fil3,corpus("${$coll}/$fil3")->[0]]);
    }
@@ -2150,10 +2145,10 @@ EOT
           grep{defined $_->[1] && (!$maxage || $t-($_->[1])<$maxage)}
           @items;
    for ($n=0;$n<@items;$n++) {
-    return cede('L3'); L3:
+    return cede('L4'); L4:
     $i=$items[$n];
     $det3=corpusDetails("${$coll}/$i->[0]");
-    if ($res2=webCorpusItem($coll,$i->[0],$det3,$gpc,\@good,\@bad)) {
+    if ($res2=webCorpusItem($coll,$i->[0],$det3,$gpc,$last_visit,\@good,\@bad)) {
      $s.=$res2;
      $matches++;
     }
@@ -2242,6 +2237,10 @@ EOT
    $cookies.="\n" if $cookies;
    $cookies.="Set-Cookie: last_action=$gpc->{action}; expires=$cookie_exp";
   }
+  if (exists $gpc->{regexp}) {
+   $cookies.="\n" if $cookies;
+   $cookies.="Set-Cookie: last_regexp=$gpc->{regexp}; expires=$cookie_exp";
+  }
   if (exists $gpc->{nomoved}) {
    $cookies.="\n" if $cookies;
    $cookies.="Set-Cookie: last_nomoved=$gpc->{nomoved}; expires=$cookie_exp";
@@ -2257,6 +2256,10 @@ $HTMLHeaderDTDTransitional
 $HTMLHeaders
   <div class="content">
     <h2>ASSP Corpus</h2>
+    <div class="note">
+      Press your browser's refresh to update this screen. Newest entries are at the end. Use single quotes for phrases.
+      Use minus sign to negate a search term. For example: term1 -'search term2'
+    </div>
     <form action="" method="get">
       <table class="textBox" style="width: 99%;">
         <tr>
@@ -2273,6 +2276,8 @@ $sel_maxage_html
             </select>
           </td>
           <td class="noBorder">
+            <input type="hidden" name="regexp" value="$gpc->{regexp}">
+            <input type="checkbox" name="regexp_checkbox"${\($gpc->{regexp} ? ' checked="checked" ' : ' ')}value='1' onclick="this.form['regexp'].value=this.checked ? '1' : '0';"/>regular&nbsp;expression<br />
             <input type="hidden" name="nomoved" value="$gpc->{nomoved}">
             <input type="checkbox" name="nomoved_checkbox"${\($gpc->{nomoved} ? ' checked="checked" ' : ' ')}value='1' onclick="this.form['nomoved'].value=this.checked ? '1' : '0';"/>hide&nbsp;moved&nbsp;files<br />
             <input type="hidden" name="nohighlight_c" value="$gpc->{nohighlight_c}">
@@ -2297,9 +2302,9 @@ EOT
 
 sub webView {
  my ($http,$gpc);
- my ($t,@colls,$coll,$coll_desc,$c,@sel_acts,$act,$sel_act_html,$def_act,$sel_act,$s,$res);
- my ($fil,$pat,$i,@tokens,%replace,@htokens,$highlightExpr,@offsets,$h,$b,$len,$index,$left);
- my ($right,$ret,$cols,$o,$char,$temp,$det,$cookie_exp,$cookies,$JavaScript,$HTMLHeaders,$fh);
+ my ($fn,$t,@colls,$coll,$coll_desc,$c,@sel_acts,$act,$sel_act_html,$def_act,$sel_act,$s,$res);
+ my ($fil,$pat,$i,@tokens,%replace,@htokens,$highlightExpr,@offsets,$len,$index,$left);
+ my ($right,$ret,$cols,$o,$char,$temp,$det,$cookie_exp,$cookies,$JavaScript,$HTMLHeaders,%tmp);
  my $sref=$Tasks{$CurTaskID}->{webView}||=[sub{
   ($http,$gpc)=@_;
  },sub{&jump;
@@ -2341,6 +2346,7 @@ EOT
              ['delete','DELETE']);
   ($act,$sel_act_html)=();
   $def_act=$sel_acts[0][0]; # default $act
+  $def_act=$sel_acts[1][0] if $def_act eq $coll;
   $act=$def_act;
   foreach $sel_act (@sel_acts) {
    next unless $sel_act->[0] eq 'delete' || ${$sel_act->[0]} && $sel_act->[0] ne $coll;
@@ -2361,28 +2367,39 @@ EOT
   ($s,$res)=();
   $fil=$gpc->{file};
   $pat=$gpc->{search};
-  if ($fil=~/\.\./) {
-   mlog(0,"file path not allowed while viewing corpus file '$fil'");
-   $res.='<div class="text"><span class="negative">Access denied</span></div>';
-  } elsif (!$coll) {
-   mlog(0,"nonexistent collection not allowed while viewing corpus file '$fil'");
-   $res.='<div class="text"><span class="negative">Access denied</span></div>';
-  } elsif (!open($fh,'<',"$base/${$coll}/$fil")) {
-   mlog(0,"failed to open corpus file for reading '$base/${$coll}/$fil': $!");
-   $res='<div class="text"><span class="negative">'.ucfirst($!).'</span></div>';
-  } else {
-   binmode $fh;
-   local $/;
-   $s=<$fh>;
-   undef $/;
-   close $fh;
+  { # block may be exited by 'last'
+   if ($fil=~/\.\./) {
+    mlog(0,"file path not allowed while viewing corpus file '$fil'");
+    $res='<div class="text"><span class="negative">Access denied</span></div>';
+    last;
+   }
+   unless ($coll) {
+    mlog(0,"nonexistent collection not allowed while viewing corpus file '$fil'");
+    $res='<div class="text"><span class="negative">Access denied</span></div>';
+    last;
+   }
+   $fn="${$coll}/$fil";
+   if (exists $CollLocks{$fn}) {
+    mlog(0,"file name locked while viewing corpus file '$fil'");
+    $res='<div class="text"><span class="negative">File name locked</span></div>';
+    last;
+   }
+   # lock file name
+   $CollLocks{$fn}=1;
+   unless (tie(%tmp,DB_File,"$base/$fn",O_RDONLY)) {
+    mlog(0,"failed to open corpus file for reading '$base/$fn'");
+    $res='<div class="text"><span class="negative">Open failed</span></div>';
+    # unlock file name
+    delete $CollLocks{$fn};
+    last;
+   }
    $pat=encodeHTMLEntities($pat) unless $gpc->{hexview};
    # normalize and strip redundand minuses
    $pat=~s/(?<!(?:-|\w))(-(?:\s+|\z))+/-/g;
    $pat=~s/\s+-$//;
    # normalize search pattern
    $i=0;
-   @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++).'_'.$_} map/(.+)/, split/(-?'[^']*')| /,$pat}};
+   @tokens=map/^\d+\_(.*)/, sort values %{{map{lc $_ => sprintf("%02d",$i++)."_$_"} map/(.+)/, split/(-?'[^']*')| /,$pat}};
    $pat=join(' ',@tokens);
    (%replace,@htokens,$highlightExpr)=();
    if ($pat && !$gpc->{nohighlight_c}) {
@@ -2396,12 +2413,15 @@ EOT
    if ($gpc->{hexview}) {
     # handle hexadecimal view
     (@offsets)=();
-    ($h,$b)=$s=~/^(.*?\015\012)\015\012(.*)/s;
+    $s=$tmp{_header};
     # mark out important headers
-    while ($h=~/^(?:Received|From|To|Date|Subject)$HeaderSepValueRe/gimo) {
+    while ($s=~/^(?:Received|From|To|Date|Subject)$HeaderSepValueRe/gimo) {
      push(@offsets,[@-[0],@+[0],'<b>','</b>']);
     }
-    $s="$h\015\012$b";
+    $s.="\015\012$tmp{_body}";
+    untie %tmp;
+    # unlock file name
+    delete $CollLocks{$fn};
     # highlight search terms
     if ($pat && !$gpc->{nohighlight_c} && @htokens) {
      $highlightExpr=join('|',@htokens);
@@ -2444,11 +2464,13 @@ EOT
     $s=$ret;
    } else {
     # handle normal view
-    $s=encodeHTMLEntities($s);
-    ($h,$b)=$s=~/^(.*?\015\012)\015\012(.*)/s;
+    $s=encodeHTMLEntities($tmp{_header});
     # mark out important headers
-    $h=~s/^((?:Received|From|To|Date|Subject)$HeaderSepValueRe)/<b>$1<\/b>/gimo;
-    $s="$h\015\012$b";
+    $s=~s/^((?:Received|From|To|Date|Subject)$HeaderSepValueRe)/<b>$1<\/b>/gimo;
+    $s.="\015\012".encodeHTMLEntities($tmp{_body});
+    untie %tmp;
+    # unlock file name
+    delete $CollLocks{$fn};
     # highlight search terms
     if ($pat && !$gpc->{nohighlight_c} && @htokens) {
      $highlightExpr=join('|',@htokens);
@@ -2459,11 +2481,11 @@ EOT
     $s=~s/([^\015])\012/$1<span style="color:black; background-color:red">\\lf<\/span>\015\012/g;
    }
    $res="Contents of the $fil file ($coll_desc):";
-   $det=corpusDetails("${$coll}/$fil");
+   $det=corpusDetails($fn);
    # if file has 'moved' bit set
    $res='<span class="neutral">'.$res.'</span>' if $det->[4] & 2;
    # turn on 'seen' bit in flags field
-   corpusSetFlags("${$coll}/$fil",($det->[4])|1);
+   corpusSetFlags($fn,($det->[4])|1);
   }
   # cookie expiration date
   $cookie_exp=$t+2592000; # one month
@@ -2500,7 +2522,8 @@ EOT
   $HTMLHeaders.="  <div class=\"tooltip_pop\" id=\"tooltip_pop\" onMouseOver=\"selectElement(this)\" onClick=\"selectElement(this);\"></div>\n" if $ShowTooltipsIP || $ShowTooltipsHost || $ShowTooltipsEmail;
   chomp($HTMLHeaders);
   unless ($gpc->{hexview}) {
-   return call('L2',addTooltips($s,$gpc->{nohighlight_c})); L2: $s=shift;
+   return call('L2',addTooltips($s,$gpc->{nohighlight_c})); L2:
+   $s=shift;
   }
   return <<EOT;
 $HTTPHeaderOK
@@ -2716,7 +2739,7 @@ sub webConfig {
    configSave();
    webRender();
    openDatabases();
-   newTask(taskInitAv(),'NORM','M') if $ConfigChanged{AvDbs} && !$AvUseClamAV && $AvDbs;
+   newTask(taskInitAv(),'IDLE','M') if $ConfigChanged{AvDbs} && !$AvUseClamAV && $AvDbs;
    # re-render config if ShowNews changed
    $r=configRender($http,$gpc) if $ConfigChanged{ShowNews};
   }
@@ -2942,7 +2965,7 @@ sub webTooltip {
   if ($param==1) {
    # handle email addresses
    (@s)=();
-   push(@s,localMailDomain($data) ? 'local' : 'non-local');
+   push(@s,localMailDomain($data) ? 'local' : 'external');
    push(@s,'whitelisted') if $Whitelist{lc $data};
    push(@s,'redlisted') if $Redlist{lc $data};
    push(@s,'blacklisted') if $blackListedDomains && ($data=~$BLDRE1);
@@ -3141,7 +3164,8 @@ sub webShutdownFrame {
    $doShutdown=0;
    $query='?nocache';
   }
-  return call('L1',addTooltips($s1)); L1: $s1=shift;
+  return call('L1',addTooltips($s1)); L1:
+  $s1=shift;
   return <<EOT;
 $HTTPHeaderOK
 $HTMLHeaderDTDStrict
@@ -3341,10 +3365,8 @@ sub webStats {
    $pdrtputMeanMsg=' ('.formatDataSize($tots{prtimeMsg}==0 ? 0 : $tots{prbytesMsg}/$tots{prtimeMsg},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg}==0 ? 0 : $tots{drbytesMsg}/$tots{drtimeMsg},1).'ps)';
    $pdrtputMeanMsg2=' ('.formatDataSize($tots{prtimeMsg2}==0 ? 0 : $tots{prbytesMsg2}/$tots{prtimeMsg2},1).'ps&nbsp;/&nbsp;'.formatDataSize($tots{drtimeMsg2}==0 ? 0 : $tots{drbytesMsg2}/$tots{drtimeMsg2},1).'ps)';
   } else {
-   ($rtputMeanHam,$rtputMeanHam2,$rtputMeanPassedSpam,$rtputMeanPassedSpam2)=('n/a')x4;
-   ($rtputMeanBlockedSpam,$rtputMeanBlockedSpam2,$rtputMeanMsg,$rtputMeanMsg2)=('n/a')x4;
-   ($pdrtputMeanHam,$pdrtputMeanHam2,$pdrtputMeanPassedSpam,$pdrtputMeanPassedSpam2)=();
-   ($pdrtputMeanBlockedSpam,$pdrtputMeanBlockedSpam2,$pdrtputMeanMsg,$pdrtputMeanMsg2)=();
+   $rtputMeanHam=$rtputMeanHam2=$rtputMeanPassedSpam=$rtputMeanPassedSpam2=$rtputMeanBlockedSpam=$rtputMeanBlockedSpam2=$rtputMeanMsg=$rtputMeanMsg2='n/a';
+   ($pdrtputMeanHam,$pdrtputMeanHam2,$pdrtputMeanPassedSpam,$pdrtputMeanPassedSpam2,$pdrtputMeanBlockedSpam,$pdrtputMeanBlockedSpam2,$pdrtputMeanMsg,$pdrtputMeanMsg2)=();
   }
   if ($AvailHiRes) {
    # banner latency per message class
@@ -3375,7 +3397,7 @@ sub webStats {
    $lminmaxMeanBlockedSpam2=' ('.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lminBlockedSpam2}/$tots{msgBlockedSpam2},1).'&nbsp;-&nbsp;'.formatTimeInterval($tots{msgBlockedSpam2}==0 ? 0 : $tots{lmaxBlockedSpam2}/$tots{msgBlockedSpam2},1).')';
    $lMeanSuffix=' avg';
   } else {
-   ($lBanner,$lBanner2,$lBannerHam,$lBannerHam2,$lBannerPassedSpam,$lBannerPassedSpam2,$lBannerBlockedSpam,$lBannerBlockedSpam2)=('n/a')x8;
+   $lBanner=$lBanner2=$lBannerHam=$lBannerHam2=$lBannerPassedSpam=$lBannerPassedSpam2=$lBannerBlockedSpam=$lBannerBlockedSpam2='n/a';
    ($lMean,$lMean2,$lMeanHam,$lMeanHam2,$lMeanPassedSpam,$lMeanPassedSpam2,$lMeanBlockedSpam,$lMeanBlockedSpam2)=();
    ($lminmaxMean,$lminmaxMean2,$lminmaxMeanHam,$lminmaxMeanHam2)=();
    ($lminmaxMeanPassedSpam,$lminmaxMeanPassedSpam2,$lminmaxMeanBlockedSpam,$lminmaxMeanBlockedSpam2)=();
@@ -3409,8 +3431,7 @@ sub webStats {
    $tctminmaxMeanKernel=' ('.formatTimeInterval($Stats{taskMinTimeKernel},1).'&nbsp;-&nbsp;'.formatTimeInterval($Stats{taskMaxTimeKernel},1).')';
    $tctminmaxMeanKernel2=' ('.formatTimeInterval($AllStats{taskMinTimeKernel},1).'&nbsp;-&nbsp;'.formatTimeInterval($AllStats{taskMaxTimeKernel},1).')';
   } else {
-   ($tctMean,$tctMean2,$tctMeanM,$tctMeanM2,$tctMeanS)=('n/a')x5;
-   ($tctMeanS2,$tctMeanW,$tctMeanW2,$tctMeanKernel,$tctMeanKernel2)=('n/a')x5;
+   $tctMean=$tctMean2=$tctMeanM=$tctMeanM2=$tctMeanS=$tctMeanS2=$tctMeanW=$tctMeanW2=$tctMeanKernel=$tctMeanKernel2='n/a';
   }
   $tQueue=$tQueueHigh=$tQueueNorm=$tQueueIdle=$tQueueWait=$tQueueSuspend=0;
   foreach $tid (@Tasks) {
@@ -3421,7 +3442,7 @@ sub webStats {
      $tQueueHigh++;
     } elsif ($task->{priority} eq 'NORM') {
      $tQueueNorm++;
-    } else { # IDLE priority
+    } elsif ($task->{priority} eq 'IDLE') {
      $tQueueIdle++;
     }
    } elsif ($task->{state} eq 'SUSPEND') {
