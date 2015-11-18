@@ -1,0 +1,1 @@
+The Anti-Spam SMTP Proxy Server (Next Generation) project aims to create an open source platform-independent SMTP Proxy server which implements whitelists, Bayesian, and basic anti-virus filtering to rid the planet of the blight of unsolicited email (UCE).
